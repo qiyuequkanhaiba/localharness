@@ -1,7 +1,7 @@
 {
   "name": "localharness",
   "productName": "LocalHarness",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Independent Electron shell for the official DeepSeek Harness web UI",
   "author": "LocalHarness",
@@ -26,6 +26,7 @@
     "@types/semver": "^7.7.1",
     "electron": "37.10.3",
     "electron-builder": "^26.0.12",
+    "png-to-ico": "^3.0.2",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

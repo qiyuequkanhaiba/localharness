@@ -11,6 +11,9 @@ directories:
 files:
   - out/**/*
   - package.json
+extraResources:
+  - from: build/icon.ico
+    to: icon.ico
 mac:
   category: public.app-category.developer-tools
   icon: build/icon.png
@@ -25,8 +28,8 @@ mac:
       arch: [arm64]
 forceCodeSigning: false
 win:
-  icon: build/icon.png
-  signAndEditExecutable: false
+  icon: build/icon.ico
+  signExecutable: false
   target:
     - target: nsis
       arch: [x64]
@@ -38,6 +41,9 @@ nsis:
   allowToChangeInstallationDirectory: true
   perMachine: false
   shortcutName: LocalHarness
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
 portable:
   artifactName: ${productName}-Portable-${version}-${os}-${arch}.${ext}
 linux:

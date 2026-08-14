@@ -12,7 +12,7 @@ It is not a fork and not an official DeepSeek product. The shell starts the offi
 - Official UI and agent behavior unchanged
 - Shared user data with `npx @deepseek-ai/dsh web` (`~/.dsh`)
 - Shipped / pinned official engine (`0.1.0-rc.6`)
-- Menu: **Check for Harness Updates…** (manual) and **Rollback Harness Engine**
+- Menu bar **LocalHarness**: 检查 Harness 更新… / 回滚 Harness 引擎 / 重启引擎 (also `Ctrl/Cmd+Shift+U`)
 
 ## Requirements
 
@@ -52,7 +52,11 @@ If `npx electron` says the binary failed to install, allow Electron's install sc
 
 The installer pins a verified official version. LocalHarness never auto-updates the engine.
 
-**LocalHarness → Check for Harness Updates…** asks npm for newer `@deepseek-ai/dsh` versions, installs the chosen one under the app support directory, smoke-tests `dsh web`, then restarts. Unverified versions can still be installed; use rollback if they fail.
+These commands live in the **desktop menu bar** (`LocalHarness`), not in the official web page:
+
+- **检查 Harness 更新…** (`Ctrl/Cmd+Shift+U`) asks npm for newer `@deepseek-ai/dsh`, installs it, smoke-tests `dsh web`, then restarts
+- **回滚 Harness 引擎** returns to the previous or shipped engine
+- Unverified official versions can still be installed; roll back if they fail to start
 
 See [docs/compat.md](docs/compat.md).
 

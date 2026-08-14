@@ -1,7 +1,17 @@
 import { BrowserWindow, shell } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { PRODUCT_NAME } from '../shared/constants'
 import type { WindowBounds } from './config'
+
+export function resolveAppIcon(): string | undefined {
+  const packaged = join(process.resourcesPath, 'icon.ico')
+  if (existsSync(packaged)) return packaged
+  const dev = join(__dirname, '../../build/icon.ico')
+  if (existsSync(dev)) return dev
+  const png = join(__dirname, '../../build/icon.png')
+  return existsSync(png) ? png : undefined
+}
 
 const DEFAULT_BOUNDS = { width: 1280, height: 840 }
 
@@ -10,6 +20,7 @@ export function rendererFile(name: string): string {
 }
 
 export function createMainWindow(bounds?: WindowBounds): BrowserWindow {
+  const icon = resolveAppIcon()
   const win = new BrowserWindow({
     ...DEFAULT_BOUNDS,
     ...bounds,
@@ -18,6 +29,7 @@ export function createMainWindow(bounds?: WindowBounds): BrowserWindow {
     title: PRODUCT_NAME,
     show: false,
     autoHideMenuBar: false,
+    ...icon ? { icon } : {},
     webPreferences: {
       preload: undefined,
       nodeIntegration: false,
@@ -28,6 +40,8 @@ export function createMainWindow(bounds?: WindowBounds): BrowserWindow {
     },
   })
 
+  win.setMenuBarVisibility(true)
+  win.setAutoHideMenuBar(false)
   win.once('ready-to-show', () => {
     win.show()
   })

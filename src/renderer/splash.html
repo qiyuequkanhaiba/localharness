@@ -53,13 +53,19 @@
       #status {
         color: #9adfd8;
       }
+      .hint {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #8aa;
+      }
     </style>
   </head>
   <body>
     <main>
       <div class="mark" aria-hidden="true"></div>
       <h1>LocalHarness</h1>
-      <p id="status">Starting official Harness…</p>
+      <p id="status">正在启动官方 Harness…</p>
+      <p class="hint">更新与回滚在菜单栏「LocalHarness」里，不在官方页面中。</p>
     </main>
     <script>
       window.setStatus = function setStatus(text) {

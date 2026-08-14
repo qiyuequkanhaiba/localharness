@@ -10,27 +10,33 @@ export interface MenuHandlers {
   openLogs: () => void
 }
 
-export function installApplicationMenu(getWindow: () => BrowserWindow | undefined, handlers: MenuHandlers): void {
-  const isMac = process.platform === 'darwin'
-  const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac
-      ? [{
-          label: PRODUCT_NAME,
-          submenu: [
-            { label: `About ${PRODUCT_NAME}`, click: () => handlers.showAbout() },
-            { type: 'separator' as const },
-            { label: 'Check for Harness Updates…', click: () => handlers.checkForUpdates() },
-            { label: 'Rollback Harness Engine', click: () => handlers.rollbackEngine() },
-            { label: 'Restart Engine', click: () => handlers.restartEngine() },
-            { type: 'separator' as const },
+function harnessMenu(isMac: boolean, handlers: MenuHandlers): Electron.MenuItemConstructorOptions {
+  return {
+    label: PRODUCT_NAME,
+    submenu: [
+      { label: `关于 ${PRODUCT_NAME}`, click: () => handlers.showAbout() },
+      { type: 'separator' },
+      { label: '检查 Harness 更新…', accelerator: 'CmdOrCtrl+Shift+U', click: () => handlers.checkForUpdates() },
+      { label: '回滚 Harness 引擎', click: () => handlers.rollbackEngine() },
+      { label: '重启引擎', click: () => handlers.restartEngine() },
+      { type: 'separator' },
+      ...(isMac
+        ? [
             { role: 'hide' as const },
             { role: 'hideOthers' as const },
             { role: 'unhide' as const },
             { type: 'separator' as const },
-            { role: 'quit' as const },
-          ],
-        }]
-      : []),
+          ]
+        : []),
+      isMac ? { role: 'quit' as const } : { label: '退出', role: 'quit' as const },
+    ],
+  }
+}
+
+export function installApplicationMenu(getWindow: () => BrowserWindow | undefined, handlers: MenuHandlers): void {
+  const isMac = process.platform === 'darwin'
+  const template: Electron.MenuItemConstructorOptions[] = [
+    harnessMenu(isMac, handlers),
     {
       label: 'Edit',
       submenu: [
@@ -67,25 +73,16 @@ export function installApplicationMenu(getWindow: () => BrowserWindow | undefine
     {
       label: 'Help',
       submenu: [
-        ...(!isMac
-          ? [
-              { label: `About ${PRODUCT_NAME}`, click: () => handlers.showAbout() },
-              { label: 'Check for Harness Updates…', click: () => handlers.checkForUpdates() },
-              { label: 'Rollback Harness Engine', click: () => handlers.rollbackEngine() },
-              { label: 'Restart Engine', click: () => handlers.restartEngine() },
-              { type: 'separator' as const },
-            ]
-          : []),
         {
-          label: 'Open User Data (~/.dsh)',
+          label: '打开用户数据 (~/.dsh)',
           click: () => void shell.openPath(defaultDshHome()),
         },
         {
-          label: 'Open Engine Logs',
+          label: '打开引擎日志',
           click: () => handlers.openLogs(),
         },
         {
-          label: 'Official DeepSeek Harness on GitHub',
+          label: '官方 DeepSeek Harness（GitHub）',
           click: () => void shell.openExternal(OFFICIAL_REPO_URL),
         },
       ],

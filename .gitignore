@@ -1,0 +1,14 @@
+node_modules/
+out/
+release/
+engine/mac-*
+engine/win-*
+engine/linux-*
+engine/.cache/
+engine/pack/
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.tsbuildinfo

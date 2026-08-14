@@ -1,0 +1,44 @@
+appId: com.localharness.app
+productName: LocalHarness
+copyright: Copyright © LocalHarness
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+asar: true
+beforePack: scripts/before-pack.cjs
+afterPack: scripts/after-pack.cjs
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+forceCodeSigning: false
+win:
+  icon: build/icon.png
+  signAndEditExecutable: false
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+nsis:
+  artifactName: ${productName}-Setup-${version}-${os}-${arch}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  shortcutName: LocalHarness
+portable:
+  artifactName: ${productName}-Portable-${version}-${os}-${arch}.${ext}
+linux:
+  target: []

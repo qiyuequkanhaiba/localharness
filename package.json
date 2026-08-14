@@ -1,0 +1,41 @@
+{
+  "name": "localharness",
+  "productName": "LocalHarness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Independent Electron shell for the official DeepSeek Harness web UI",
+  "author": "LocalHarness",
+  "license": "MIT",
+  "main": "out/main/index.js",
+  "scripts": {
+    "compile": "tsc -p tsconfig.json && node scripts/copy-renderer.cjs",
+    "start": "npm run compile && electron .",
+    "prepare-engine": "tsc -p tsconfig.json && node scripts/prepare-engine.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "pack": "npm run compile && electron-builder --dir",
+    "dist": "npm run compile && electron-builder",
+    "dist:mac": "npm run compile && electron-builder --mac --arm64",
+    "dist:win": "npm run compile && electron-builder --win --x64"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/semver": "^7.7.1",
+    "electron": "37.10.3",
+    "electron-builder": "^26.0.12",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "semver": "^7.7.2"
+  },
+  "allowScripts": {
+    "electron@37.10.3": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.28.2": true
+  }
+}

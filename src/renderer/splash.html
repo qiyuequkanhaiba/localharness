@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LocalHarness</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: radial-gradient(1200px 700px at 20% 0%, #3a2a6a 0%, transparent 55%),
+          linear-gradient(160deg, #1a1530 0%, #12363a 100%);
+        color: #edf4f4;
+      }
+      main {
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        padding: 32px;
+        text-align: center;
+      }
+      .mark {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #7a5cff, #2ec9c0);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+      }
+      h1 {
+        margin: 8px 0 0;
+        font-size: 22px;
+        font-weight: 620;
+        letter-spacing: 0.01em;
+      }
+      p {
+        margin: 0;
+        max-width: 420px;
+        color: #c5d4d4;
+        line-height: 1.5;
+      }
+      #status {
+        color: #9adfd8;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true"></div>
+      <h1>LocalHarness</h1>
+      <p id="status">Starting official Harness…</p>
+    </main>
+    <script>
+      window.setStatus = function setStatus(text) {
+        var el = document.getElementById("status")
+        if (el) el.textContent = text
+      }
+    </script>
+  </body>
+</html>

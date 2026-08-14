@@ -1,10 +1,13 @@
 # LocalHarness
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/qiyuequkanhaiba/localharness)](https://github.com/qiyuequkanhaiba/localharness/releases)
+
 Independent Electron window for official [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`@deepseek-ai/dsh`).
 
-It is not a fork and not an official DeepSeek product. The shell starts the official `dsh web` engine on loopback, loads that UI in its own window, and leaves `~/.dsh` as the Harness home.
+**Not a fork and not an official DeepSeek product.** The shell starts official `dsh web` on loopback, loads that UI in its own window, and leaves `~/.dsh` as the Harness home.
 
-中文说明见下方。
+[Download](https://github.com/qiyuequkanhaiba/localharness/releases/latest) · 中文说明见下方。
 
 ## What you get
 
@@ -79,6 +82,11 @@ LocalHarness 是官方 DeepSeek Harness 的独立桌面窗口，不是官方产�
 
 - 双击启动，不打开系统浏览器，不需要自己跑 `npx @deepseek-ai/dsh web`
 - 数据仍在 `~/.dsh`，可与官方命令行共用
-- 安装包钉死已验证的官方引擎版本；需要升级时用菜单 **Check for Harness Updates…**
+- 安装包钉死已验证的官方引擎版本；升级用菜单栏 **LocalHarness → 检查 Harness 更新…**
+- 安装包：[Releases](https://github.com/qiyuequkanhaiba/localharness/releases/latest)
 - 开发：`npm install && npm run prepare-engine && npm start`
 - 打包：macOS arm64 用 `npm run dist:mac`；Windows x64 在 Windows 上跑 `npm run dist:win`
+
+## License
+
+[MIT](LICENSE)

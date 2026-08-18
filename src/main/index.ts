@@ -1,4 +1,4 @@
-import { app, dialog, shell } from 'electron'
+import { app, shell } from 'electron'
 import { join } from 'node:path'
 import { APP_ID, PINNED_ENGINE_VERSION, PRODUCT_NAME, VERIFIED_ENGINE_VERSIONS } from '../shared/constants'
 import { locateEngine, describeMissingEngine } from '../engine/locate'
@@ -7,8 +7,9 @@ import { defaultWorkspaceCwd, loadConfig, saveConfig, type ShellConfig } from '.
 import { EngineLog } from './logs'
 import { installApplicationMenu } from './menu'
 import { startEngine, stopEngine, type RunningEngine } from './session'
-import { confirmAndInstallUpdate, inspectOfficialUpdates, rollbackTarget } from './updater'
-import { createMainWindow, isEnginePage, showError, showSplash } from './window'
+import { isAcceptedDialogButton } from '../shared/dialog-response'
+import { confirmAndInstallUpdate, inspectOfficialUpdates, rollbackTarget, showAppMessageBox } from './updater'
+import { createMainWindow, isEnginePage, setSplashStatus, showError, showSplash } from './window'
 
 app.setName(PRODUCT_NAME)
 app.setAppUserModelId(APP_ID)
@@ -21,9 +22,20 @@ if (!gotLock) {
 let mainWindow: Electron.BrowserWindow | undefined
 let running: RunningEngine | undefined
 let starting = false
+let updating = false
 let quitting = false
 let config: ShellConfig = {}
 let log!: EngineLog
+
+function liveWindow(): Electron.BrowserWindow | undefined {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
+}
+
+function updateLog(message: string): void {
+  log.write('update', message)
+  const win = liveWindow()
+  if (win) void setSplashStatus(win, message)
+}
 
 const projectRoot = join(__dirname, '../..')
 
@@ -89,7 +101,7 @@ async function bootEngine(status: string): Promise<void> {
 function showAbout(): void {
   const engine = running?.engine
   const verified = engine && (VERIFIED_ENGINE_VERSIONS as readonly string[]).includes(engine.version)
-  void dialog.showMessageBox({
+  void showAppMessageBox(liveWindow(), {
     type: 'info',
     title: `About ${PRODUCT_NAME}`,
     message: PRODUCT_NAME,
@@ -112,23 +124,29 @@ function showAbout(): void {
 }
 
 async function checkForUpdates(): Promise<void> {
+  if (updating) return
   if (!running) {
-    await dialog.showMessageBox({
+    await showAppMessageBox(liveWindow(), {
       type: 'info',
       message: 'Start the engine before checking for updates.',
     })
     return
   }
+  updating = true
+  const engineUrl = running.url
   try {
+    log.write('update', `Checking npm for versions newer than ${running.engine.version}`)
     const decision = await inspectOfficialUpdates(running.engine.version)
     if (decision.kind === 'current') {
-      await dialog.showMessageBox({
+      log.write('update', `Already on ${decision.current}`)
+      await showAppMessageBox(liveWindow(), {
         type: 'info',
         message: `Already on the newest published official engine (${decision.current}).`,
         detail: 'LocalHarness does not auto-update. Check again from the menu when you want to.',
       })
       return
     }
+    log.write('update', `Official ${decision.target} available (current ${decision.current})`)
     const installed = await confirmAndInstallUpdate(
       {
         current: running.engine,
@@ -137,11 +155,19 @@ async function checkForUpdates(): Promise<void> {
         packaged: app.isPackaged,
         resourcesPath: process.resourcesPath,
         projectRoot,
+        parent: liveWindow(),
+        onAccepted: async () => {
+          const win = liveWindow()
+          if (win) await showSplash(win, `Installing official ${decision.target}…`)
+        },
       },
       decision,
-      { info: (message) => log.write('update', message) },
+      { info: updateLog },
     )
-    if (!installed) return
+    if (!installed) {
+      log.write('update', 'Install cancelled')
+      return
+    }
     config.previousEngineVersion = config.activeEngineVersion ?? running.engine.version
     config.activeEngineVersion = decision.target
     persistConfig()
@@ -149,11 +175,17 @@ async function checkForUpdates(): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     log.write('update', message)
-    await dialog.showMessageBox({
+    await showAppMessageBox(liveWindow(), {
       type: 'error',
       message: 'Could not update the official engine',
       detail: message,
     })
+    const win = liveWindow()
+    if (win && engineUrl) {
+      await win.loadURL(engineUrl)
+    }
+  } finally {
+    updating = false
   }
 }
 
@@ -165,14 +197,14 @@ async function rollbackEngine(): Promise<void> {
     userEnginesDir: join(app.getPath('userData'), 'engines'),
   })
   if (!target) {
-    await dialog.showMessageBox({
+    await showAppMessageBox(liveWindow(), {
       type: 'info',
       message: 'No previous engine is available to roll back to.',
       detail: `Shipped engine is ${PINNED_ENGINE_VERSION}.`,
     })
     return
   }
-  const choice = await dialog.showMessageBox({
+  const choice = await showAppMessageBox(liveWindow(), {
     type: 'question',
     buttons: ['Roll Back', 'Cancel'],
     defaultId: 0,
@@ -181,7 +213,7 @@ async function rollbackEngine(): Promise<void> {
       ? `Roll back to official ${target.version}?`
       : `Roll back to the shipped engine (${PINNED_ENGINE_VERSION})?`,
   })
-  if (choice.response !== 0) return
+  if (!isAcceptedDialogButton(choice.response, 0)) return
   config.previousEngineVersion = config.activeEngineVersion
   config.activeEngineVersion = target.version
   persistConfig()

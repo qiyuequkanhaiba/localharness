@@ -1,8 +1,9 @@
-import { dialog } from 'electron'
+import { dialog, type BrowserWindow } from 'electron'
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { cp } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PINNED_NODE_VERSION, PRODUCT_NAME, VERIFIED_ENGINE_VERSIONS } from '../shared/constants'
+import { isAcceptedDialogButton } from '../shared/dialog-response'
 import { prepareEngineTree, scratchDir } from '../engine/install'
 import { bundledEngineDir, userEngineDir } from '../engine/locate'
 import { fetchOfficialVersions, newestPublished, versionsNewerThan } from '../engine/registry'
@@ -17,6 +18,19 @@ export interface UpdateContext {
   packaged: boolean
   resourcesPath: string
   projectRoot: string
+  parent?: BrowserWindow
+  onAccepted?: () => Promise<void>
+}
+
+export function showAppMessageBox(
+  parent: BrowserWindow | undefined,
+  options: Electron.MessageBoxOptions,
+): Promise<Electron.MessageBoxReturnValue> {
+  const box = { noLink: true, ...options }
+  if (parent && !parent.isDestroyed()) {
+    return dialog.showMessageBox(parent, box)
+  }
+  return dialog.showMessageBox(box)
 }
 
 export type UpdateDecision =
@@ -49,7 +63,7 @@ export async function confirmAndInstallUpdate(
     ? 'LocalHarness has verified this official version.'
     : 'LocalHarness has not verified this official version yet. You can still install it, and Rollback will return to the previous engine if it fails.'
 
-  const choice = await dialog.showMessageBox({
+  const choice = await showAppMessageBox(ctx.parent, {
     type: 'question',
     buttons: ['Install', 'Cancel'],
     defaultId: 0,
@@ -64,11 +78,14 @@ export async function confirmAndInstallUpdate(
       'The installer is downloaded from the npm registry. LocalHarness does not modify official UI or host code.',
     ].join('\n'),
   })
-  if (choice.response !== 0) return undefined
+  log.info(`Update dialog response=${choice.response}`)
+  if (!isAcceptedDialogButton(choice.response, 0)) return undefined
+  if (ctx.onAccepted) await ctx.onAccepted()
 
   const dest = userEngineDir(ctx.userEnginesDir, decision.target)
   const tmp = scratchDir('localharness-engine')
   try {
+    log.info(`Installing official ${decision.target}…`)
     await prepareEngineTree({
       engineRoot: tmp,
       engineVersion: decision.target,

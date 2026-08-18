@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { cp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { NODE_DIST_BASE, OFFICIAL_PACKAGE } from '../shared/constants'
 import {
@@ -20,6 +20,26 @@ export interface Logger {
 }
 
 const silent: Logger = { info() {} }
+
+/** Env for `npm install` of the official engine. Lifecycle scripts must see bundled `node`. */
+export function officialInstallEnv(
+  nodeBinary: string,
+  extra: NodeJS.ProcessEnv = {},
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...base,
+    PATH: `${dirname(nodeBinary)}${delimiter}${base.PATH ?? ''}`,
+    npm_config_update_notifier: 'false',
+    npm_config_fund: 'false',
+    npm_config_audit: 'false',
+    npm_config_build_from_source: 'false',
+    npm_config_scripts_prepend_node_path: 'true',
+    ...extra,
+  }
+  delete env.ELECTRON_RUN_AS_NODE
+  return env
+}
 
 function run(
   command: string,
@@ -134,15 +154,7 @@ export async function installOfficialPackage(options: {
   )
 
   log.info(`Installing ${OFFICIAL_PACKAGE}@${options.engineVersion}`)
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    npm_config_cache: options.npmCacheDir,
-    npm_config_update_notifier: 'false',
-    npm_config_fund: 'false',
-    npm_config_audit: 'false',
-    npm_config_build_from_source: 'false',
-  }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = officialInstallEnv(node, { npm_config_cache: options.npmCacheDir })
   await run(node, [
     npmCli,
     'install',

@@ -52,6 +52,42 @@
       }
       #status {
         color: #9adfd8;
+        max-width: 640px;
+      }
+      .meta {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #8aa;
+        font-size: 12px;
+      }
+      .spinner {
+        width: 12px;
+        height: 12px;
+        border: 2px solid rgba(154, 223, 216, 0.25);
+        border-top-color: #9adfd8;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      #log {
+        margin-top: 8px;
+        width: min(720px, 92vw);
+        max-height: 34vh;
+        overflow: auto;
+        text-align: left;
+        background: rgba(0, 0, 0, 0.28);
+        border: 1px solid rgba(154, 223, 216, 0.12);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #b7d4d1;
+        white-space: pre-wrap;
+        display: none;
       }
       .hint {
         margin-top: 8px;
@@ -65,13 +101,40 @@
       <div class="mark" aria-hidden="true"></div>
       <h1>LocalHarness</h1>
       <p id="status">正在启动官方 Harness…</p>
+      <p class="meta"><span class="spinner" aria-hidden="true"></span><span id="elapsed">00:00</span></p>
+      <pre id="log"></pre>
       <p class="hint">更新与回滚在菜单栏「LocalHarness」里，不在官方页面中。</p>
     </main>
     <script>
+      var started = Date.now()
       window.setStatus = function setStatus(text) {
         var el = document.getElementById("status")
         if (el) el.textContent = text
       }
+      window.appendLog = function appendLog(text) {
+        var el = document.getElementById("log")
+        if (!el) return
+        var lines = String(text).split(/\n/)
+        var added = 0
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].replace(/\s+$/, "")
+          if (!line) continue
+          el.appendChild(document.createTextNode(line + "\n"))
+          added++
+        }
+        if (!added) return
+        el.style.display = "block"
+        while (el.childNodes.length > 160) el.removeChild(el.firstChild)
+        el.scrollTop = el.scrollHeight
+      }
+      setInterval(function () {
+        var el = document.getElementById("elapsed")
+        if (!el) return
+        var s = Math.floor((Date.now() - started) / 1000)
+        var m = Math.floor(s / 60)
+        var r = s % 60
+        el.textContent = (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r
+      }, 500)
     </script>
   </body>
 </html>

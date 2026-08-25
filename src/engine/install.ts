@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { NODE_DIST_BASE, OFFICIAL_PACKAGE } from '../shared/constants'
+import { killProcessTree } from './kill'
 import {
   dshBinPath,
   manifestPath,
@@ -17,9 +18,20 @@ import { slimEngineTree } from './slim'
 
 export interface Logger {
   info(message: string): void
+  output?(text: string): void
 }
 
 const silent: Logger = { info() {} }
+
+export function splitOutputLines(chunk: string, pending = ''): { lines: string[]; pending: string } {
+  const text = `${pending}${chunk}`.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const parts = text.split('\n')
+  const nextPending = parts.pop() ?? ''
+  return {
+    lines: parts.map((line) => line.replace(/\s+$/, '')).filter((line) => line.length > 0),
+    pending: nextPending,
+  }
+}
 
 /** Env for `npm install` of the official engine. Lifecycle scripts must see bundled `node`. */
 export function officialInstallEnv(
@@ -35,6 +47,9 @@ export function officialInstallEnv(
     npm_config_audit: 'false',
     npm_config_build_from_source: 'false',
     npm_config_scripts_prepend_node_path: 'true',
+    npm_config_prefer_offline: 'true',
+    npm_config_progress: 'false',
+    npm_config_loglevel: 'info',
     ...extra,
   }
   delete env.ELECTRON_RUN_AS_NODE
@@ -44,9 +59,13 @@ export function officialInstallEnv(
 function run(
   command: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv },
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; onOutput?: (line: string) => void; signal?: AbortSignal },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(new Error('install cancelled'))
+      return
+    }
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
@@ -54,14 +73,31 @@ function run(
       windowsHide: true,
     })
     let output = ''
-    child.stdout?.on('data', (chunk: Buffer) => {
-      output += chunk.toString()
+    let pending = ''
+    const take = (chunk: Buffer): void => {
+      const text = chunk.toString()
+      output = `${output}${text}`.slice(-8000)
+      const split = splitOutputLines(text, pending)
+      pending = split.pending
+      for (const line of split.lines) options.onOutput?.(line)
+    }
+    child.stdout?.on('data', take)
+    child.stderr?.on('data', take)
+    const abort = (): void => {
+      if (child.pid) void killProcessTree(child.pid, 4_000)
+    }
+    options.signal?.addEventListener('abort', abort, { once: true })
+    child.on('error', (error) => {
+      options.signal?.removeEventListener('abort', abort)
+      reject(error)
     })
-    child.stderr?.on('data', (chunk: Buffer) => {
-      output += chunk.toString()
-    })
-    child.on('error', reject)
     child.on('exit', (code) => {
+      options.signal?.removeEventListener('abort', abort)
+      if (pending.trim()) options.onOutput?.(pending.trim())
+      if (options.signal?.aborted) {
+        reject(new Error('install cancelled'))
+        return
+      }
       if (code === 0) {
         resolve()
         return
@@ -131,6 +167,7 @@ export async function installOfficialPackage(options: {
   npmCacheDir: string
   log?: Logger
   platform?: NodeJS.Platform
+  signal?: AbortSignal
 }): Promise<void> {
   const log = options.log ?? silent
   const platform = options.platform ?? process.platform
@@ -138,6 +175,7 @@ export async function installOfficialPackage(options: {
   const npmCli = npmCliPath(options.engineRoot, platform)
   if (!existsSync(node)) throw new Error(`Node runtime missing at ${node}`)
   if (!existsSync(npmCli)) throw new Error(`npm CLI missing at ${npmCli}`)
+  if (options.signal?.aborted) throw new Error('install cancelled')
 
   mkdirSync(options.engineRoot, { recursive: true })
   writeFileSync(
@@ -153,7 +191,7 @@ export async function installOfficialPackage(options: {
     )}\n`,
   )
 
-  log.info(`Installing ${OFFICIAL_PACKAGE}@${options.engineVersion}`)
+  log.info(`正在安装 ${OFFICIAL_PACKAGE}@${options.engineVersion}（依赖较多，可能需要几分钟）`)
   const env = officialInstallEnv(node, { npm_config_cache: options.npmCacheDir })
   await run(node, [
     npmCli,
@@ -163,9 +201,14 @@ export async function installOfficialPackage(options: {
     '--no-audit',
     '--no-fund',
     '--no-package-lock',
+    '--no-progress',
+    '--loglevel=info',
+    '--foreground-scripts',
   ], {
     cwd: options.engineRoot,
     env,
+    signal: options.signal,
+    onOutput: (line) => log.output?.(line),
   })
 
   if (!existsSync(dshBinPath(options.engineRoot))) {
@@ -186,12 +229,14 @@ export async function prepareEngineTree(options: {
   cacheDir: string
   runtimeSourceDir?: string
   log?: Logger
+  signal?: AbortSignal
 }): Promise<void> {
   const log = options.log ?? silent
+  if (options.signal?.aborted) throw new Error('install cancelled')
   mkdirSync(options.engineRoot, { recursive: true })
   const destRuntime = join(options.engineRoot, 'runtime')
   if (options.runtimeSourceDir && existsSync(options.runtimeSourceDir)) {
-    log.info(`Copying Node runtime from ${options.runtimeSourceDir}`)
+    log.info('正在复制 Node 运行时…')
     await copyRuntime(options.runtimeSourceDir, destRuntime)
   } else {
     await installNodeRuntime({
@@ -209,6 +254,7 @@ export async function prepareEngineTree(options: {
     npmCacheDir: join(options.cacheDir, 'npm'),
     log,
     platform: options.platform,
+    signal: options.signal,
   })
   writeManifest(options.engineRoot, {
     engineVersion: options.engineVersion,

@@ -57,7 +57,8 @@ export async function inspectOfficialUpdates(currentVersion: string): Promise<Up
 export async function confirmAndInstallUpdate(
   ctx: UpdateContext,
   decision: Extract<UpdateDecision, { kind: 'available' }>,
-  log: { info(message: string): void },
+  log: { info(message: string): void; output?(text: string): void },
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
   const warning = decision.verified
     ? 'LocalHarness has verified this official version.'
@@ -85,7 +86,7 @@ export async function confirmAndInstallUpdate(
   const dest = userEngineDir(ctx.userEnginesDir, decision.target)
   const tmp = scratchDir('localharness-engine')
   try {
-    log.info(`Installing official ${decision.target}…`)
+    log.info(`正在安装官方引擎 ${decision.target}…`)
     await prepareEngineTree({
       engineRoot: tmp,
       engineVersion: decision.target,
@@ -95,8 +96,10 @@ export async function confirmAndInstallUpdate(
       cacheDir: ctx.cacheDir,
       runtimeSourceDir: ctx.current.runtimeDir,
       log,
+      signal,
     })
-    log.info(`Smoke-testing official ${decision.target}`)
+    if (signal?.aborted) throw new Error('install cancelled')
+    log.info(`正在冒烟测试官方 ${decision.target}…`)
     await smokeTestEngine(tmp)
     rmSync(dest, { recursive: true, force: true })
     mkdirSync(ctx.userEnginesDir, { recursive: true })

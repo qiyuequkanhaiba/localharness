@@ -9,7 +9,7 @@ import { installApplicationMenu } from './menu'
 import { startEngine, stopEngine, type RunningEngine } from './session'
 import { isAcceptedDialogButton } from '../shared/dialog-response'
 import { confirmAndInstallUpdate, inspectOfficialUpdates, rollbackTarget, showAppMessageBox } from './updater'
-import { createMainWindow, isEnginePage, setSplashStatus, showError, showSplash } from './window'
+import { appendSplashLog, createMainWindow, isEnginePage, setSplashStatus, showError, showSplash } from './window'
 
 app.setName(PRODUCT_NAME)
 app.setAppUserModelId(APP_ID)
@@ -24,6 +24,7 @@ let running: RunningEngine | undefined
 let starting = false
 let updating = false
 let quitting = false
+let updateAbort: AbortController | undefined
 let config: ShellConfig = {}
 let log!: EngineLog
 
@@ -34,7 +35,19 @@ function liveWindow(): Electron.BrowserWindow | undefined {
 function updateLog(message: string): void {
   log.write('update', message)
   const win = liveWindow()
-  if (win) void setSplashStatus(win, message)
+  if (!win) return
+  void setSplashStatus(win, message)
+  appendSplashLog(win, message)
+}
+
+function npmProgress(text: string): void {
+  const win = liveWindow()
+  if (win) appendSplashLog(win, text)
+}
+
+function busyMessage(): string {
+  if (updating) return '正在安装官方引擎更新，请稍候。'
+  return '正在启动官方引擎，请稍候。'
 }
 
 const projectRoot = join(__dirname, '../..')
@@ -124,7 +137,10 @@ function showAbout(): void {
 }
 
 async function checkForUpdates(): Promise<void> {
-  if (updating) return
+  if (updating || starting) {
+    await showAppMessageBox(liveWindow(), { type: 'info', message: busyMessage() })
+    return
+  }
   if (!running) {
     await showAppMessageBox(liveWindow(), {
       type: 'info',
@@ -133,6 +149,7 @@ async function checkForUpdates(): Promise<void> {
     return
   }
   updating = true
+  updateAbort = new AbortController()
   const engineUrl = running.url
   try {
     log.write('update', `Checking npm for versions newer than ${running.engine.version}`)
@@ -158,11 +175,12 @@ async function checkForUpdates(): Promise<void> {
         parent: liveWindow(),
         onAccepted: async () => {
           const win = liveWindow()
-          if (win) await showSplash(win, `Installing official ${decision.target}…`)
+          if (win) await showSplash(win, `正在安装官方引擎 ${decision.target}…`)
         },
       },
       decision,
-      { info: updateLog },
+      { info: updateLog, output: npmProgress },
+      updateAbort.signal,
     )
     if (!installed) {
       log.write('update', 'Install cancelled')
@@ -171,25 +189,34 @@ async function checkForUpdates(): Promise<void> {
     config.previousEngineVersion = config.activeEngineVersion ?? running.engine.version
     config.activeEngineVersion = decision.target
     persistConfig()
-    await bootEngine(`Restarting on official ${decision.target}…`)
+    log.write('update', `Switching active engine to ${decision.target}`)
+    updating = false
+    await bootEngine(`正在重启到官方 ${decision.target}…`)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     log.write('update', message)
-    await showAppMessageBox(liveWindow(), {
-      type: 'error',
-      message: 'Could not update the official engine',
-      detail: message,
-    })
+    if (!quitting && !/install cancelled/.test(message)) {
+      await showAppMessageBox(liveWindow(), {
+        type: 'error',
+        message: 'Could not update the official engine',
+        detail: message,
+      })
+    }
     const win = liveWindow()
-    if (win && engineUrl) {
+    if (!quitting && win && engineUrl) {
       await win.loadURL(engineUrl)
     }
   } finally {
     updating = false
+    updateAbort = undefined
   }
 }
 
 async function rollbackEngine(): Promise<void> {
+  if (updating || starting) {
+    await showAppMessageBox(liveWindow(), { type: 'info', message: busyMessage() })
+    return
+  }
   const target = rollbackTarget(config.previousEngineVersion, {
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
@@ -259,7 +286,13 @@ if (gotLock) {
     installApplicationMenu(() => mainWindow, {
       checkForUpdates: () => void checkForUpdates(),
       rollbackEngine: () => void rollbackEngine(),
-      restartEngine: () => void bootEngine('Restarting official Harness…'),
+      restartEngine: () => {
+        if (updating) {
+          void showAppMessageBox(liveWindow(), { type: 'info', message: busyMessage() })
+          return
+        }
+        void bootEngine('Restarting official Harness…')
+      },
       showAbout,
       openLogs,
     })
@@ -290,7 +323,8 @@ if (gotLock) {
 
   app.on('before-quit', async (event) => {
     if (quitting) return
-    if (!running && !starting) {
+    if (updating) updateAbort?.abort()
+    if (!running && !starting && !updating) {
       log.close()
       return
     }
@@ -298,7 +332,7 @@ if (gotLock) {
     quitting = true
     persistConfig()
     const deadline = Date.now() + 15_000
-    while (starting && Date.now() < deadline) {
+    while ((starting || updating) && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
     await stopEngine(running, log)

@@ -92,6 +92,22 @@ export async function setSplashStatus(win: BrowserWindow, status: string): Promi
   await win.webContents.executeJavaScript(`window.setStatus && window.setStatus(${JSON.stringify(status)})`)
 }
 
+const pendingSplashLog: string[] = []
+let splashLogTimer: NodeJS.Timeout | undefined
+
+export function appendSplashLog(win: BrowserWindow, text: string): void {
+  if (win.isDestroyed() || !text.trim()) return
+  pendingSplashLog.push(text)
+  if (splashLogTimer) return
+  splashLogTimer = setTimeout(() => {
+    splashLogTimer = undefined
+    const batch = pendingSplashLog.splice(0).join('\n')
+    if (!batch || win.isDestroyed()) return
+    if (!win.webContents.getURL().includes('splash.html')) return
+    void win.webContents.executeJavaScript(`window.appendLog && window.appendLog(${JSON.stringify(batch)})`)
+  }, 120)
+}
+
 export async function showError(win: BrowserWindow, message: string): Promise<void> {
   await win.loadFile(rendererFile('error.html'), { query: { message } })
 }

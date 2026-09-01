@@ -2,6 +2,7 @@ import { dialog, type BrowserWindow } from 'electron'
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { cp } from 'node:fs/promises'
 import { join } from 'node:path'
+import { valid } from 'semver'
 import { PINNED_NODE_VERSION, PRODUCT_NAME, VERIFIED_ENGINE_VERSIONS } from '../shared/constants'
 import { isAcceptedDialogButton } from '../shared/dialog-response'
 import { prepareEngineTree, scratchDir } from '../engine/install'
@@ -39,12 +40,15 @@ export type UpdateDecision =
 
 export async function inspectOfficialUpdates(currentVersion: string): Promise<UpdateDecision> {
   const info = await fetchOfficialVersions()
-  const newer = versionsNewerThan(currentVersion, info.versions)
-  const latest = newestPublished(info.versions) ?? info.latest
+  const latest =
+    info.latest && valid(info.latest) && info.versions.includes(info.latest)
+      ? info.latest
+      : newestPublished(info.versions)
+  const newer = latest ? versionsNewerThan(currentVersion, [latest]) : []
   if (newer.length === 0) {
     return { kind: 'current', current: currentVersion, latest }
   }
-  const target = newestPublished(newer) ?? newer[0]
+  const target = newer[0]
   return {
     kind: 'available',
     current: currentVersion,
@@ -73,7 +77,7 @@ export async function confirmAndInstallUpdate(
     message: `Install official ${decision.target}?`,
     detail: [
       `Current engine: ${decision.current}`,
-      `Newest published @deepseek-ai/dsh: ${decision.target}`,
+      `Latest npm tag @deepseek-ai/dsh: ${decision.target}`,
       warning,
       '',
       'The installer is downloaded from the npm registry. LocalHarness does not modify official UI or host code.',

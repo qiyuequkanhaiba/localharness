@@ -152,13 +152,13 @@ async function checkForUpdates(): Promise<void> {
   updateAbort = new AbortController()
   const engineUrl = running.url
   try {
-    log.write('update', `Checking npm for versions newer than ${running.engine.version}`)
+    log.write('update', `Checking npm latest channel for versions newer than ${running.engine.version}`)
     const decision = await inspectOfficialUpdates(running.engine.version)
     if (decision.kind === 'current') {
       log.write('update', `Already on ${decision.current}`)
       await showAppMessageBox(liveWindow(), {
         type: 'info',
-        message: `Already on the newest published official engine (${decision.current}).`,
+        message: `Already on the newest official engine from the npm latest channel (${decision.current}).`,
         detail: 'LocalHarness does not auto-update. Check again from the menu when you want to.',
       })
       return
@@ -341,4 +341,3 @@ if (gotLock) {
     app.quit()
   })
 }
-

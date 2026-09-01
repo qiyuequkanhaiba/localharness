@@ -4,7 +4,7 @@ import { cp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { NODE_DIST_BASE, OFFICIAL_PACKAGE } from '../shared/constants'
+import { NODE_DIST_BASE, NPM_REGISTRY, OFFICIAL_PACKAGE } from '../shared/constants'
 import { killProcessTree } from './kill'
 import {
   dshBinPath,
@@ -47,9 +47,10 @@ export function officialInstallEnv(
     npm_config_audit: 'false',
     npm_config_build_from_source: 'false',
     npm_config_scripts_prepend_node_path: 'true',
-    npm_config_prefer_offline: 'true',
+    npm_config_prefer_online: 'true',
     npm_config_progress: 'false',
     npm_config_loglevel: 'info',
+    npm_config_registry: NPM_REGISTRY,
     ...extra,
   }
   delete env.ELECTRON_RUN_AS_NODE

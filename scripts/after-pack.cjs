@@ -22,7 +22,7 @@ module.exports = async function afterPack(context) {
   }
 
   rmSync(dest, { recursive: true, force: true })
-  cpSync(src, dest, { recursive: true })
+  cpSync(src, dest, { recursive: true, verbatimSymlinks: true })
 
   const packedDsh = join(dest, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
   if (!existsSync(packedDsh)) {

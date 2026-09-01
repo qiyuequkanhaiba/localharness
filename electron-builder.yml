@@ -15,6 +15,7 @@ extraResources:
   - from: build/icon.ico
     to: icon.ico
 mac:
+  identity: "-"
   category: public.app-category.developer-tools
   icon: build/icon.png
   hardenedRuntime: true

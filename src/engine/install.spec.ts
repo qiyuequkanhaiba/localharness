@@ -1,6 +1,8 @@
-import { delimiter, dirname } from 'node:path'
+import { existsSync, mkdtempSync, mkdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { officialInstallEnv, splitOutputLines } from './install'
+import { copyRuntime, officialInstallEnv, splitOutputLines } from './install'
 
 describe('officialInstallEnv', () => {
   it('puts the bundled node directory first on PATH so lifecycle scripts can run', () => {
@@ -30,5 +32,22 @@ describe('splitOutputLines', () => {
       lines: ['a', 'b'],
       pending: '',
     })
+  })
+})
+
+describe('copyRuntime', () => {
+  it('preserves relative symlink targets when copying the bundled runtime', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'localharness-copy-runtime-'))
+    const source = join(root, 'source')
+    const dest = join(root, 'dest')
+    mkdirSync(join(source, 'bin'), { recursive: true })
+    mkdirSync(join(source, 'lib', 'node_modules', 'npm', 'bin'), { recursive: true })
+    writeFileSync(join(source, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'), '')
+    symlinkSync('../lib/node_modules/npm/bin/npm-cli.js', join(source, 'bin', 'npm'))
+
+    await copyRuntime(source, dest)
+
+    expect(readlinkSync(join(dest, 'bin', 'npm'))).toBe('../lib/node_modules/npm/bin/npm-cli.js')
+    expect(existsSync(join(dest, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'))).toBe(true)
   })
 })

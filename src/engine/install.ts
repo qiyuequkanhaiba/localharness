@@ -159,7 +159,7 @@ export async function installNodeRuntime(options: {
 
 export async function copyRuntime(sourceRuntimeDir: string, destRuntimeDir: string): Promise<void> {
   rmSync(destRuntimeDir, { recursive: true, force: true })
-  await cp(sourceRuntimeDir, destRuntimeDir, { recursive: true })
+  await cp(sourceRuntimeDir, destRuntimeDir, { recursive: true, verbatimSymlinks: true })
 }
 
 export async function installOfficialPackage(options: {

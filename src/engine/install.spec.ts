@@ -48,7 +48,7 @@ describe('copyRuntime', () => {
 
     await copyRuntime(source, dest)
 
-    expect(readlinkSync(join(dest, 'bin', 'npm'))).toBe('../lib/node_modules/npm/bin/npm-cli.js')
+    expect(readlinkSync(join(dest, 'bin', 'npm')).replace(/\\/g, '/')).toBe('../lib/node_modules/npm/bin/npm-cli.js')
     expect(existsSync(join(dest, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'))).toBe(true)
   })
 })

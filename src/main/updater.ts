@@ -7,7 +7,7 @@ import { PINNED_NODE_VERSION, PRODUCT_NAME, VERIFIED_ENGINE_VERSIONS } from '../
 import { isAcceptedDialogButton } from '../shared/dialog-response'
 import { prepareEngineTree, scratchDir } from '../engine/install'
 import { bundledEngineDir, userEngineDir } from '../engine/locate'
-import { fetchOfficialVersions, newestPublished, versionsNewerThan } from '../engine/registry'
+import { fetchOfficialVersions, newestPublished, versionsNewerThan, type HttpFetch } from '../engine/registry'
 import type { ResolvedEngine } from '../engine/layout'
 import type { HostArch, HostPlatform } from '../engine/platform'
 import type { UpdateChannel } from './config'
@@ -44,8 +44,9 @@ export type UpdateDecision =
 export async function inspectOfficialUpdates(
   currentVersion: string,
   channel: UpdateChannel = 'newest',
+  fetchImpl: HttpFetch = fetch,
 ): Promise<UpdateDecision> {
-  const info = await fetchOfficialVersions()
+  const info = await fetchOfficialVersions(undefined, undefined, fetchImpl)
   const latestTag =
     info.latest && valid(info.latest) && info.versions.includes(info.latest) ? info.latest : undefined
   const newest = newestPublished(info.versions) ?? latestTag

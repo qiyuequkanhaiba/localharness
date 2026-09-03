@@ -1,6 +1,8 @@
 import { gt, rcompare, valid } from 'semver'
 import { NPM_REGISTRY, OFFICIAL_PACKAGE } from '../shared/constants'
 
+export type HttpFetch = (url: string, init?: RequestInit) => Promise<Response>
+
 export interface NpmPackageInfo {
   name: string
   versions: string[]
@@ -15,9 +17,10 @@ interface NpmRegistryResponse {
 export async function fetchOfficialVersions(
   registry = NPM_REGISTRY,
   packageName = OFFICIAL_PACKAGE,
+  fetchImpl: HttpFetch = fetch,
 ): Promise<NpmPackageInfo> {
   const url = `${registry.replace(/\/$/, '')}/${packageName.replace('/', '%2f')}`
-  const response = await fetch(url, {
+  const response = await fetchImpl(url, {
     headers: { accept: 'application/json' },
   })
   if (!response.ok) {

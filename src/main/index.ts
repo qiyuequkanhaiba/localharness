@@ -18,7 +18,9 @@ import { EngineLog } from './logs'
 import { installApplicationMenu, type MenuHandlers } from './menu'
 import { pruneUserEngines } from './prune-engines'
 import { startEngine, stopEngine, type RunningEngine } from './session'
+import { appFetch } from './app-fetch'
 import { inspectShellUpdates } from './shell-update'
+import { engineUpdateBusyMessage, type EngineUpdateBusyState } from './update-state'
 import { isAcceptedDialogButton } from '../shared/dialog-response'
 import { applyLivePluginDisables } from './profile-plugins'
 import { confirmAndInstallUpdate, inspectOfficialUpdates, rollbackTarget, showAppMessageBox } from './updater'
@@ -48,6 +50,7 @@ let mainWindow: Electron.BrowserWindow | undefined
 let running: RunningEngine | undefined
 let starting = false
 let updating = false
+let updateState: EngineUpdateBusyState | undefined
 let quitting = false
 let updateAbort: AbortController | undefined
 let config: ShellConfig = {}
@@ -70,8 +73,13 @@ function npmProgress(text: string): void {
   if (win) appendSplashLog(win, text)
 }
 
+function setEngineUpdateState(state: EngineUpdateBusyState | undefined): void {
+  updateState = state
+  updating = Boolean(state)
+}
+
 function busyMessage(): string {
-  if (updating) return '正在安装官方引擎更新，请稍候。'
+  if (updating) return engineUpdateBusyMessage(updateState ?? { phase: 'installing' })
   return '正在启动官方引擎，请稍候。'
 }
 
@@ -196,7 +204,7 @@ async function checkForUpdates(): Promise<void> {
     })
     return
   }
-  updating = true
+  setEngineUpdateState({ phase: 'checking' })
   updateAbort = new AbortController()
   const engineUrl = running.url
   let restorePlugins: { restore(): void } | undefined
@@ -205,6 +213,7 @@ async function checkForUpdates(): Promise<void> {
     const decision = await inspectOfficialUpdates(
       running.engine.version,
       normalizeUpdateChannel(config.updateChannel),
+      appFetch,
     )
     if (decision.kind === 'current') {
       log.write('update', `Already on ${decision.current}`)
@@ -216,6 +225,7 @@ async function checkForUpdates(): Promise<void> {
       return
     }
     log.write('update', `Official ${decision.target} available (current ${decision.current})`)
+    setEngineUpdateState({ phase: 'confirming', target: decision.target })
     const installed = await confirmAndInstallUpdate(
       {
         current: running.engine,
@@ -226,6 +236,7 @@ async function checkForUpdates(): Promise<void> {
         projectRoot,
         parent: liveWindow(),
         onAccepted: async () => {
+          setEngineUpdateState({ phase: 'installing', target: decision.target })
           const win = liveWindow()
           if (win) await showSplash(win, `正在安装官方引擎 ${decision.target}…`)
         },
@@ -261,7 +272,7 @@ async function checkForUpdates(): Promise<void> {
     config.activeEngineVersion = decision.target
     persistConfig()
     log.write('update', `Switching active engine to ${decision.target}`)
-    updating = false
+    setEngineUpdateState({ phase: 'restarting', target: decision.target })
     const started = await bootEngine(`正在重启到官方 ${decision.target}…`, { showError: false })
     if (started) {
       restorePlugins = undefined
@@ -315,7 +326,7 @@ async function checkForUpdates(): Promise<void> {
       await win.loadURL(engineUrl)
     }
   } finally {
-    updating = false
+    setEngineUpdateState(undefined)
     updateAbort = undefined
   }
 }
@@ -357,7 +368,7 @@ async function rollbackEngine(): Promise<void> {
 
 async function checkShellUpdates(): Promise<void> {
   try {
-    const decision = await inspectShellUpdates(app.getVersion())
+    const decision = await inspectShellUpdates(app.getVersion(), appFetch)
     if (decision.kind === 'current') {
       await showAppMessageBox(liveWindow(), {
         type: 'info',

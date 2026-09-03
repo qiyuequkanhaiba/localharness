@@ -1,5 +1,6 @@
 import { gt, valid } from 'semver'
 import { GITHUB_REPO, GITHUB_RELEASES_URL } from '../shared/constants'
+import type { HttpFetch } from '../engine/registry'
 
 export type ShellUpdateDecision =
   | { kind: 'current'; current: string; latest?: string }
@@ -19,7 +20,7 @@ export function releasePageUrl(tag?: string): string {
 
 export async function inspectShellUpdates(
   currentVersion: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: HttpFetch = fetch,
 ): Promise<ShellUpdateDecision> {
   const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
   const response = await fetchImpl(url, {

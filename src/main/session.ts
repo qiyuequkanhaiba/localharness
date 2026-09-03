@@ -81,7 +81,7 @@ export function startEngine(options: StartEngineOptions): Promise<RunningEngine>
     }
 
     const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
-      const tail = buffer.text.trim().slice(-2000)
+      const tail = buffer.text.trim().slice(-8000)
       finish(new Error(`engine exited (code ${code}, signal ${signal})${tail ? `\n${tail}` : ''}`))
     }
 

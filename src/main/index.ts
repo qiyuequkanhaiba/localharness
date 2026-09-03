@@ -8,6 +8,7 @@ import { EngineLog } from './logs'
 import { installApplicationMenu } from './menu'
 import { startEngine, stopEngine, type RunningEngine } from './session'
 import { isAcceptedDialogButton } from '../shared/dialog-response'
+import { applyLivePluginDisables } from './profile-plugins'
 import { confirmAndInstallUpdate, inspectOfficialUpdates, rollbackTarget, showAppMessageBox } from './updater'
 import { appendSplashLog, createMainWindow, isEnginePage, setSplashStatus, showError, showSplash } from './window'
 
@@ -153,6 +154,7 @@ async function checkForUpdates(): Promise<void> {
   updating = true
   updateAbort = new AbortController()
   const engineUrl = running.url
+  let restorePlugins: { restore(): void } | undefined
   try {
     log.write('update', `Checking npm for versions newer than ${running.engine.version}`)
     const decision = await inspectOfficialUpdates(running.engine.version)
@@ -189,6 +191,15 @@ async function checkForUpdates(): Promise<void> {
       log.write('update', 'Install cancelled')
       return
     }
+    const disableIds = [...new Set(installed.disabledPlugins.flatMap((plugin) => plugin.entryIds))]
+    restorePlugins =
+      disableIds.length > 0 ? applyLivePluginDisables(defaultDshHome(), disableIds) : undefined
+    if (installed.disabledPlugins.length > 0) {
+      log.write(
+        'update',
+        `Turned off incompatible plugins: ${installed.disabledPlugins.map((plugin) => plugin.packageName).join(', ')}`,
+      )
+    }
     const previousActive = config.activeEngineVersion
     config.previousEngineVersion = previousActive ?? running.engine.version
     config.activeEngineVersion = decision.target
@@ -196,8 +207,25 @@ async function checkForUpdates(): Promise<void> {
     log.write('update', `Switching active engine to ${decision.target}`)
     updating = false
     const started = await bootEngine(`正在重启到官方 ${decision.target}…`, { showError: false })
-    if (started) return
+    if (started) {
+      restorePlugins = undefined
+      if (installed.disabledPlugins.length > 0 && !quitting) {
+        await showAppMessageBox(liveWindow(), {
+          type: 'info',
+          title: `${PRODUCT_NAME} — plugins turned off`,
+          message: `Official ${decision.target} is running.`,
+          detail: [
+            'These plugins could not start with the new engine, so they were turned off. The packages are still installed:',
+            ...installed.disabledPlugins.map((plugin) => `• ${plugin.packageName}`),
+            '',
+            'After you update a plugin, turn it back on in the official plugin settings, or uninstall it there.',
+          ].join('\n'),
+        })
+      }
+      return
+    }
     log.write('update', `Official ${decision.target} failed to start; rolling back`)
+    restorePlugins?.restore()
     restoreActiveEngine(config, previousActive, decision.target)
     persistConfig()
     const rolledBack = await bootEngine('升级后无法启动，正在回滚…')
@@ -211,6 +239,7 @@ async function checkForUpdates(): Promise<void> {
       })
     }
   } catch (error) {
+    restorePlugins?.restore()
     const message = error instanceof Error ? error.message : String(error)
     log.write('update', message)
     if (!quitting && !/install cancelled/.test(message)) {

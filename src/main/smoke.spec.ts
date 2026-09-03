@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, writeFi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { seedSmokeHome } from './smoke'
+import { describeProfilePluginFailure, seedSmokeHome } from './smoke'
 
 describe('seedSmokeHome', () => {
   it('copies the web profile manifest and links node_modules without using the live DSH_HOME', () => {
@@ -40,5 +40,18 @@ describe('seedSmokeHome', () => {
     const root = mkdtempSync(join(tmpdir(), 'localharness-smoke-empty-'))
     seedSmokeHome(join(root, 'temp'), join(root, 'missing'))
     expect(existsSync(join(root, 'temp', 'profiles'))).toBe(false)
+  })
+})
+
+describe('describeProfilePluginFailure', () => {
+  it('names the plugin and missing export from a dsh-settings mismatch', () => {
+    const message = [
+      "file:///C:/Users/Nova006693/.dsh/profiles/web/node_modules/dsh-better-sidebar/lib/index.js:11",
+      "import { SettingsConflictError, settingsNamespace } from \"@deepseek-ai/dsh-settings\";",
+      "SyntaxError: The requested module '@deepseek-ai/dsh-settings' does not provide an export named 'settingsNamespace'",
+    ].join('\n')
+    expect(describeProfilePluginFailure(message)).toBe(
+      "Plugin dsh-better-sidebar is not compatible with this official engine (missing export settingsNamespace).",
+    )
   })
 })

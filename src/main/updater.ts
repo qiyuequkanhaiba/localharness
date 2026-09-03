@@ -10,7 +10,8 @@ import { bundledEngineDir, userEngineDir } from '../engine/locate'
 import { fetchOfficialVersions, newestPublished, versionsNewerThan } from '../engine/registry'
 import type { ResolvedEngine } from '../engine/layout'
 import type { HostArch, HostPlatform } from '../engine/platform'
-import { smokeTestEngine } from './smoke'
+import type { DisabledPlugin } from './profile-plugins'
+import { ProfileIncompatibleError, smokeTestEngineWithUserProfile } from './smoke'
 
 export interface UpdateContext {
   current: ResolvedEngine
@@ -59,12 +60,17 @@ export async function inspectOfficialUpdates(currentVersion: string): Promise<Up
   }
 }
 
+export interface InstalledUpdate {
+  dest: string
+  disabledPlugins: DisabledPlugin[]
+}
+
 export async function confirmAndInstallUpdate(
   ctx: UpdateContext,
   decision: Extract<UpdateDecision, { kind: 'available' }>,
   log: { info(message: string): void; output?(text: string): void },
   signal?: AbortSignal,
-): Promise<string | undefined> {
+): Promise<InstalledUpdate | undefined> {
   const warning = decision.verified
     ? 'LocalHarness has verified this official version.'
     : 'LocalHarness has not verified this official version yet. You can still install it, and Rollback will return to the previous engine if it fails.'
@@ -83,7 +89,7 @@ export async function confirmAndInstallUpdate(
         ? `npm latest tag is still ${decision.latestTag}`
         : '',
       warning,
-      'If the new engine fails to start with your ~/.dsh web profile, LocalHarness will roll back automatically.',
+      'If a plugin in ~/.dsh cannot start with the new engine, LocalHarness will turn that plugin off (the package stays installed) and continue. If the engine itself fails to start, it will roll back.',
       '',
       'The installer is downloaded from the npm registry. LocalHarness does not modify official UI or host code.',
     ]
@@ -110,8 +116,34 @@ export async function confirmAndInstallUpdate(
       signal,
     })
     if (signal?.aborted) throw new Error('install cancelled')
-    log.info(`正在冒烟测试官方 ${decision.target}…`)
-    await smokeTestEngine(tmp, ctx.userDshHome)
+    let disabledPlugins: DisabledPlugin[] = []
+    try {
+      const smoked = await smokeTestEngineWithUserProfile(tmp, ctx.userDshHome, log)
+      disabledPlugins = smoked.disabledPlugins
+    } catch (error) {
+      if (!(error instanceof ProfileIncompatibleError)) throw error
+      log.info(error.hint)
+      const proceed = await showAppMessageBox(ctx.parent, {
+        type: 'warning',
+        buttons: ['Install anyway', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        title: `${PRODUCT_NAME} — profile plugins`,
+        message: `Official ${decision.target} starts, but a ~/.dsh plugin could not be skipped.`,
+        detail: [
+          error.hint,
+          '',
+          'LocalHarness could not turn the plugin off automatically. Update or uninstall it from ~/.dsh/profiles/web, then try again.',
+          'Install anyway will switch engines with the plugin still enabled. If it still fails to start, LocalHarness will roll back.',
+          '',
+          error.message.slice(-1500),
+        ].join('\n'),
+      })
+      if (!isAcceptedDialogButton(proceed.response, 0)) {
+        throw new Error('install cancelled')
+      }
+      log.info('Continuing install despite incompatible ~/.dsh plugins')
+    }
     rmSync(dest, { recursive: true, force: true })
     mkdirSync(ctx.userEnginesDir, { recursive: true })
     try {
@@ -120,7 +152,7 @@ export async function confirmAndInstallUpdate(
       await cp(tmp, dest, { recursive: true })
       rmSync(tmp, { recursive: true, force: true })
     }
-    return dest
+    return { dest, disabledPlugins }
   } catch (error) {
     rmSync(tmp, { recursive: true, force: true })
     throw error

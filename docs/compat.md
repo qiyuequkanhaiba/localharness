@@ -4,7 +4,7 @@ LocalHarness is a window around official `@deepseek-ai/dsh`. It does not fork Ha
 
 | Official engine | LocalHarness shell | Status |
 |---|---|---|
-| `0.1.0-rc.6` | `0.1.6` | Verified — shipped / pinned |
+| `0.1.0-rc.6` | `0.1.7` | Verified — shipped / pinned |
 
 Unlisted npm versions can still be installed from **Check for Harness Updates…**. They are marked unverified. Use **Rollback Harness Engine** if a new official release fails to start.
 

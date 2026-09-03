@@ -9,10 +9,27 @@ export interface WindowBounds {
   height: number
 }
 
+export const UPDATE_CHANNELS = ['newest', 'latest', 'verified'] as const
+export type UpdateChannel = (typeof UPDATE_CHANNELS)[number]
+
+export interface DisabledPluginRecord {
+  packageName: string
+  entryIds: string[]
+  engineVersion?: string
+  at?: string
+}
+
 export interface ShellConfig {
   activeEngineVersion?: string
   previousEngineVersion?: string
   windowBounds?: WindowBounds
+  updateChannel?: UpdateChannel
+  workspaceCwd?: string
+  disabledPlugins?: DisabledPluginRecord[]
+}
+
+export function normalizeUpdateChannel(value: unknown): UpdateChannel {
+  return value === 'latest' || value === 'verified' || value === 'newest' ? value : 'newest'
 }
 
 const FILE_NAME = 'shell.json'
@@ -45,6 +62,22 @@ export function restoreActiveEngine(
   config.previousEngineVersion = failedVersion
 }
 
-export function defaultWorkspaceCwd(): string {
+export function defaultWorkspaceCwd(config?: ShellConfig): string {
+  const fromConfig = config?.workspaceCwd?.trim()
+  if (fromConfig && fromConfig.length > 0) return fromConfig
   return homedir()
+}
+
+export function rememberDisabledPlugins(
+  config: ShellConfig,
+  plugins: DisabledPluginRecord[],
+): void {
+  if (plugins.length === 0) return
+  const next = [...(config.disabledPlugins ?? [])]
+  for (const plugin of plugins) {
+    const index = next.findIndex((row) => row.packageName === plugin.packageName)
+    if (index >= 0) next[index] = plugin
+    else next.push(plugin)
+  }
+  config.disabledPlugins = next
 }

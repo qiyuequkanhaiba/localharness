@@ -49,4 +49,29 @@ describe('inspectOfficialUpdates', () => {
       latest: '0.1.2-alpha.5',
     })
   })
+
+  it('on the latest channel only offers the npm latest tag', async () => {
+    vi.mocked(fetchOfficialVersions).mockResolvedValue({
+      name: '@deepseek-ai/dsh',
+      latest: '0.1.1-rc.2',
+      versions: ['0.1.2-alpha.5', '0.1.1-rc.2', '0.1.0-rc.6'],
+    })
+
+    const fromRc6 = await inspectOfficialUpdates('0.1.0-rc.6', 'latest')
+    expect(fromRc6).toMatchObject({ kind: 'available', target: '0.1.1-rc.2' })
+
+    const fromAlpha = await inspectOfficialUpdates('0.1.2-alpha.5', 'latest')
+    expect(fromAlpha).toMatchObject({ kind: 'current', current: '0.1.2-alpha.5' })
+  })
+
+  it('on the verified channel stays current when no newer verified version exists', async () => {
+    vi.mocked(fetchOfficialVersions).mockResolvedValue({
+      name: '@deepseek-ai/dsh',
+      latest: '0.1.1-rc.2',
+      versions: ['0.1.2-alpha.5', '0.1.1-rc.2', '0.1.0-rc.6'],
+    })
+
+    const decision = await inspectOfficialUpdates('0.1.0-rc.6', 'verified')
+    expect(decision.kind).toBe('current')
+  })
 })

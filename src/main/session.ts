@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { delimiter } from 'node:path'
 import { ENGINE_START_TIMEOUT_MS, ENGINE_STOP_TIMEOUT_MS } from '../shared/constants'
+import { officialWebArgs } from '../engine/flags'
 import { killProcessTree } from '../engine/kill'
 import { appendAndParse } from '../engine/ready'
 import type { ResolvedEngine } from '../engine/layout'
@@ -10,6 +11,7 @@ export interface RunningEngine {
   process: ChildProcess
   engine: ResolvedEngine
   url: string
+  stopping: boolean
 }
 
 export interface StartEngineOptions {
@@ -18,6 +20,7 @@ export interface StartEngineOptions {
   log: EngineLog
   extraEnv?: NodeJS.ProcessEnv
   timeoutMs?: number
+  onUnexpectedExit?: (detail: string) => void
 }
 
 function runtimeBinDir(engine: ResolvedEngine): string {
@@ -35,23 +38,21 @@ export function startEngine(options: StartEngineOptions): Promise<RunningEngine>
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ELECTRON_NO_ASAR
 
-  const child = spawn(
-    options.engine.nodePath,
-    [options.engine.dshBinPath, 'web', '--host', '127.0.0.1', '--port', '0'],
-    {
-      cwd: options.cwd,
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    },
-  )
+  const webArgs = officialWebArgs(options.engine.root)
+  const child = spawn(options.engine.nodePath, [options.engine.dshBinPath, ...webArgs], {
+    cwd: options.cwd,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
 
-  options.log.write('spawn', `${options.engine.nodePath} ${options.engine.dshBinPath} web --host 127.0.0.1 --port 0`)
+  options.log.write('spawn', `${options.engine.nodePath} ${options.engine.dshBinPath} ${webArgs.join(' ')}`)
   options.log.write('engine', `${options.engine.version} from ${options.engine.root} (${options.engine.source})`)
 
   return new Promise<RunningEngine>((resolve, reject) => {
     const buffer = { text: '' }
     let settled = false
+    let running: RunningEngine | undefined
 
     const finish = (error?: Error, url?: string): void => {
       if (settled) return
@@ -60,12 +61,13 @@ export function startEngine(options: StartEngineOptions): Promise<RunningEngine>
       child.stdout?.off('data', onData)
       child.stderr?.off('data', onData)
       child.off('error', onError)
-      child.off('exit', onExit)
       if (error || !url) {
+        child.off('exit', onExit)
         reject(error ?? new Error('engine exited before publishing a URL'))
         return
       }
-      resolve({ process: child, engine: options.engine, url })
+      running = { process: child, engine: options.engine, url, stopping: false }
+      resolve(running)
     }
 
     const onData = (chunk: Buffer): void => {
@@ -81,8 +83,15 @@ export function startEngine(options: StartEngineOptions): Promise<RunningEngine>
     }
 
     const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
-      const tail = buffer.text.trim().slice(-8000)
-      finish(new Error(`engine exited (code ${code}, signal ${signal})${tail ? `\n${tail}` : ''}`))
+      if (!settled) {
+        const tail = buffer.text.trim().slice(-8000)
+        finish(new Error(`engine exited (code ${code}, signal ${signal})${tail ? `\n${tail}` : ''}`))
+        return
+      }
+      if (running?.stopping) return
+      const detail = `engine exited (code ${code}, signal ${signal})`
+      options.log.write('error', detail)
+      options.onUnexpectedExit?.(detail)
     }
 
     child.stdout?.on('data', onData)
@@ -99,6 +108,7 @@ export function startEngine(options: StartEngineOptions): Promise<RunningEngine>
 
 export async function stopEngine(running: RunningEngine | undefined, log: EngineLog): Promise<void> {
   if (!running?.process.pid) return
+  running.stopping = true
   log.write('stop', `pid ${running.process.pid}`)
   await killProcessTree(running.process.pid, ENGINE_STOP_TIMEOUT_MS)
 }

@@ -2,7 +2,7 @@ import { dialog, type BrowserWindow } from 'electron'
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { cp } from 'node:fs/promises'
 import { join } from 'node:path'
-import { valid } from 'semver'
+import { gt, valid } from 'semver'
 import { PINNED_NODE_VERSION, PRODUCT_NAME, VERIFIED_ENGINE_VERSIONS } from '../shared/constants'
 import { isAcceptedDialogButton } from '../shared/dialog-response'
 import { prepareEngineTree, scratchDir } from '../engine/install'
@@ -10,6 +10,7 @@ import { bundledEngineDir, userEngineDir } from '../engine/locate'
 import { fetchOfficialVersions, newestPublished, versionsNewerThan } from '../engine/registry'
 import type { ResolvedEngine } from '../engine/layout'
 import type { HostArch, HostPlatform } from '../engine/platform'
+import type { UpdateChannel } from './config'
 import type { DisabledPlugin } from './profile-plugins'
 import { ProfileIncompatibleError, smokeTestEngineWithUserProfile } from './smoke'
 
@@ -40,12 +41,47 @@ export type UpdateDecision =
   | { kind: 'current'; current: string; latest?: string }
   | { kind: 'available'; current: string; target: string; newer: string[]; verified: boolean; latestTag?: string }
 
-export async function inspectOfficialUpdates(currentVersion: string): Promise<UpdateDecision> {
+export async function inspectOfficialUpdates(
+  currentVersion: string,
+  channel: UpdateChannel = 'newest',
+): Promise<UpdateDecision> {
   const info = await fetchOfficialVersions()
   const latestTag =
     info.latest && valid(info.latest) && info.versions.includes(info.latest) ? info.latest : undefined
-  const newer = versionsNewerThan(currentVersion, info.versions)
   const newest = newestPublished(info.versions) ?? latestTag
+  const verified = (version: string) => (VERIFIED_ENGINE_VERSIONS as readonly string[]).includes(version)
+
+  if (channel === 'latest') {
+    if (!latestTag || !gt(latestTag, currentVersion)) {
+      return { kind: 'current', current: currentVersion, latest: newest }
+    }
+    return {
+      kind: 'available',
+      current: currentVersion,
+      target: latestTag,
+      newer: [latestTag],
+      verified: verified(latestTag),
+      latestTag,
+    }
+  }
+
+  if (channel === 'verified') {
+    const verifiedNewer = versionsNewerThan(currentVersion, [...VERIFIED_ENGINE_VERSIONS])
+    const target = newestPublished(verifiedNewer)
+    if (!target) {
+      return { kind: 'current', current: currentVersion, latest: newest }
+    }
+    return {
+      kind: 'available',
+      current: currentVersion,
+      target,
+      newer: verifiedNewer,
+      verified: true,
+      latestTag,
+    }
+  }
+
+  const newer = versionsNewerThan(currentVersion, info.versions)
   if (newer.length === 0) {
     return { kind: 'current', current: currentVersion, latest: newest }
   }
@@ -55,7 +91,7 @@ export async function inspectOfficialUpdates(currentVersion: string): Promise<Up
     current: currentVersion,
     target,
     newer,
-    verified: (VERIFIED_ENGINE_VERSIONS as readonly string[]).includes(target),
+    verified: verified(target),
     latestTag,
   }
 }
@@ -72,26 +108,26 @@ export async function confirmAndInstallUpdate(
   signal?: AbortSignal,
 ): Promise<InstalledUpdate | undefined> {
   const warning = decision.verified
-    ? 'LocalHarness has verified this official version.'
-    : 'LocalHarness has not verified this official version yet. You can still install it, and Rollback will return to the previous engine if it fails.'
+    ? 'LocalHarness 已验证此官方版本。'
+    : 'LocalHarness 尚未验证此官方版本。仍可安装；失败可用「回滚 Harness 引擎」回到上一版。'
 
   const choice = await showAppMessageBox(ctx.parent, {
     type: 'question',
-    buttons: ['Install', 'Cancel'],
+    buttons: ['安装', '取消'],
     defaultId: 0,
     cancelId: 1,
-    title: `${PRODUCT_NAME} — official engine update`,
-    message: `Install official ${decision.target}?`,
+    title: `${PRODUCT_NAME} — 官方引擎更新`,
+    message: `安装官方 ${decision.target}？`,
     detail: [
-      `Current engine: ${decision.current}`,
-      `Newest published @deepseek-ai/dsh: ${decision.target}`,
+      `当前引擎: ${decision.current}`,
+      `将安装: ${decision.target}`,
       decision.latestTag && decision.latestTag !== decision.target
-        ? `npm latest tag is still ${decision.latestTag}`
+        ? `npm latest 标签仍是 ${decision.latestTag}`
         : '',
       warning,
-      'If a plugin in ~/.dsh cannot start with the new engine, LocalHarness will turn that plugin off (the package stays installed) and continue. If the engine itself fails to start, it will roll back.',
+      '若 ~/.dsh 里的插件无法随新引擎启动，会自动关掉该插件（安装包保留）。若引擎本身起不来，会回滚。',
       '',
-      'The installer is downloaded from the npm registry. LocalHarness does not modify official UI or host code.',
+      '安装包来自 npm。LocalHarness 不修改官方界面或宿主代码。',
     ]
       .filter((line) => line.length > 0)
       .join('\n'),
@@ -125,16 +161,16 @@ export async function confirmAndInstallUpdate(
       log.info(error.hint)
       const proceed = await showAppMessageBox(ctx.parent, {
         type: 'warning',
-        buttons: ['Install anyway', 'Cancel'],
+        buttons: ['仍然安装', '取消'],
         defaultId: 1,
         cancelId: 1,
-        title: `${PRODUCT_NAME} — profile plugins`,
-        message: `Official ${decision.target} starts, but a ~/.dsh plugin could not be skipped.`,
+        title: `${PRODUCT_NAME} — 配置插件`,
+        message: `官方 ${decision.target} 可以启动，但有 ~/.dsh 插件无法自动跳过。`,
         detail: [
           error.hint,
           '',
-          'LocalHarness could not turn the plugin off automatically. Update or uninstall it from ~/.dsh/profiles/web, then try again.',
-          'Install anyway will switch engines with the plugin still enabled. If it still fails to start, LocalHarness will roll back.',
+          '无法自动关闭该插件。请先在 ~/.dsh/profiles/web 更新或卸载，然后再试。',
+          '选择「仍然安装」会在插件仍启用的情况下切换引擎；若还是起不来会回滚。',
           '',
           error.message.slice(-1500),
         ].join('\n'),

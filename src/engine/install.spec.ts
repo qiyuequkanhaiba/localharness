@@ -16,6 +16,7 @@ describe('officialInstallEnv', () => {
     expect(env.npm_config_prefer_offline).toBeUndefined()
     expect(env.npm_config_registry).toBe('https://registry.npmjs.org')
     expect(env.npm_config_cache).toBe('/tmp/npm')
+    expect(env.NODE_OPTIONS).toContain('--max-old-space-size=4096')
   })
 })
 

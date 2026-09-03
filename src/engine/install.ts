@@ -33,6 +33,12 @@ export function splitOutputLines(chunk: string, pending = ''): { lines: string[]
   }
 }
 
+function withHeapLimit(existing: string | undefined): string {
+  if (existing && /max-old-space-size/i.test(existing)) return existing
+  const flag = '--max-old-space-size=4096'
+  return existing && existing.trim().length > 0 ? `${existing} ${flag}` : flag
+}
+
 /** Env for `npm install` of the official engine. Lifecycle scripts must see bundled `node`. */
 export function officialInstallEnv(
   nodeBinary: string,
@@ -42,6 +48,7 @@ export function officialInstallEnv(
   const env: NodeJS.ProcessEnv = {
     ...base,
     PATH: `${dirname(nodeBinary)}${delimiter}${base.PATH ?? ''}`,
+    NODE_OPTIONS: withHeapLimit(base.NODE_OPTIONS),
     npm_config_update_notifier: 'false',
     npm_config_fund: 'false',
     npm_config_audit: 'false',

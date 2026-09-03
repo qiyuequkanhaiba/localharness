@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { restoreActiveEngine, type ShellConfig } from './config'
+import { rememberDisabledPlugins, restoreActiveEngine, type ShellConfig } from './config'
 
 describe('restoreActiveEngine', () => {
   it('puts the previous active engine back after a failed update', () => {
@@ -17,5 +17,21 @@ describe('restoreActiveEngine', () => {
     restoreActiveEngine(config, undefined, '0.1.2-alpha.5')
     expect(config.activeEngineVersion).toBeUndefined()
     expect(config.previousEngineVersion).toBe('0.1.2-alpha.5')
+  })
+})
+
+describe('rememberDisabledPlugins', () => {
+  it('merges plugin rows by package name', () => {
+    const config: ShellConfig = {
+      disabledPlugins: [{ packageName: 'dshmarket', entryIds: ['dsh-market'] }],
+    }
+    rememberDisabledPlugins(config, [
+      { packageName: 'dsh-better-sidebar', entryIds: ['better-sidebar'], engineVersion: '0.1.2-alpha.5' },
+      { packageName: 'dshmarket', entryIds: ['dsh-market'], engineVersion: '0.1.2-alpha.5' },
+    ])
+    expect(config.disabledPlugins).toEqual([
+      { packageName: 'dshmarket', entryIds: ['dsh-market'], engineVersion: '0.1.2-alpha.5' },
+      { packageName: 'dsh-better-sidebar', entryIds: ['better-sidebar'], engineVersion: '0.1.2-alpha.5' },
+    ])
   })
 })

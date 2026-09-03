@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -54,16 +54,37 @@
         border-radius: 10px;
         font-size: 12px;
       }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: center;
+        margin-top: 8px;
+      }
+      a.btn {
+        display: inline-block;
+        padding: 8px 14px;
+        border-radius: 8px;
+        background: #2a3344;
+        color: #edf4f4;
+        text-decoration: none;
+        font-size: 13px;
+      }
     </style>
   </head>
   <body>
     <main>
-      <h1>Official engine failed to start</h1>
+      <h1>官方引擎未能启动</h1>
       <p>
-        LocalHarness could not launch official <code>@deepseek-ai/dsh</code>.
-        Use the LocalHarness menu to restart the engine, roll back, or open logs.
+        LocalHarness 无法启动官方 <code>@deepseek-ai/dsh</code>。
+        可重启引擎、回滚，或打开日志。
       </p>
-      <pre id="message">Unknown error</pre>
+      <div class="actions">
+        <a class="btn" href="localharness://restart">重启引擎</a>
+        <a class="btn" href="localharness://rollback">回滚引擎</a>
+        <a class="btn" href="localharness://logs">打开日志</a>
+      </div>
+      <pre id="message">未知错误</pre>
     </main>
     <script>
       var params = new URLSearchParams(location.search)

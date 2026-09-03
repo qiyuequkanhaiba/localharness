@@ -1,16 +1,40 @@
-import { app, shell } from 'electron'
+import { app, dialog, ipcMain, shell } from 'electron'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { APP_ID, PINNED_ENGINE_VERSION, PRODUCT_NAME, VERIFIED_ENGINE_VERSIONS } from '../shared/constants'
 import { locateEngine, describeMissingEngine } from '../engine/locate'
 import { defaultDshHome } from '../engine/platform'
-import { defaultWorkspaceCwd, loadConfig, restoreActiveEngine, saveConfig, type ShellConfig } from './config'
+import {
+  defaultWorkspaceCwd,
+  loadConfig,
+  normalizeUpdateChannel,
+  rememberDisabledPlugins,
+  restoreActiveEngine,
+  saveConfig,
+  type ShellConfig,
+  type UpdateChannel,
+} from './config'
 import { EngineLog } from './logs'
-import { installApplicationMenu } from './menu'
+import { installApplicationMenu, type MenuHandlers } from './menu'
+import { pruneUserEngines } from './prune-engines'
 import { startEngine, stopEngine, type RunningEngine } from './session'
+import { inspectShellUpdates } from './shell-update'
 import { isAcceptedDialogButton } from '../shared/dialog-response'
 import { applyLivePluginDisables } from './profile-plugins'
 import { confirmAndInstallUpdate, inspectOfficialUpdates, rollbackTarget, showAppMessageBox } from './updater'
-import { appendSplashLog, createMainWindow, isEnginePage, setSplashStatus, showError, showSplash } from './window'
+import {
+  appendSplashLog,
+  attachHostWindow,
+  closeFindBar,
+  createMainWindow,
+  findInParent,
+  isEnginePage,
+  openFindBar,
+  reloadEngineUi,
+  setSplashStatus,
+  showError,
+  showSplash,
+} from './window'
 
 app.setName(PRODUCT_NAME)
 app.setAppUserModelId(APP_ID)
@@ -71,6 +95,13 @@ function persistConfig(): void {
   saveConfig(app.getPath('userData'), config)
 }
 
+function refreshMenu(): void {
+  installApplicationMenu(() => mainWindow, menuHandlers, () => ({
+    updateChannel: normalizeUpdateChannel(config.updateChannel),
+    workspaceCwd: defaultWorkspaceCwd(config),
+  }))
+}
+
 async function bootEngine(status: string, options?: { showError?: boolean }): Promise<boolean> {
   if (starting) return Boolean(running)
   starting = true
@@ -89,13 +120,20 @@ async function bootEngine(status: string, options?: { showError?: boolean }): Pr
     }
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      await showSplash(mainWindow, `Starting official Harness ${engine.version}…`)
+      await showSplash(mainWindow, `正在启动官方 Harness ${engine.version}…`)
     }
 
     running = await startEngine({
       engine,
-      cwd: defaultWorkspaceCwd(),
+      cwd: defaultWorkspaceCwd(config),
       log,
+      onUnexpectedExit: (detail) => {
+        running = undefined
+        const win = liveWindow()
+        if (!win || quitting) return
+        log.write('error', `官方引擎意外退出: ${detail}`)
+        void showError(win, `官方引擎已退出。\n${detail}`)
+      },
     })
 
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -117,19 +155,26 @@ async function bootEngine(status: string, options?: { showError?: boolean }): Pr
 function showAbout(): void {
   const engine = running?.engine
   const verified = engine && (VERIFIED_ENGINE_VERSIONS as readonly string[]).includes(engine.version)
+  const disabled =
+    config.disabledPlugins && config.disabledPlugins.length > 0
+      ? config.disabledPlugins.map((plugin) => plugin.packageName).join(', ')
+      : '无'
   void showAppMessageBox(liveWindow(), {
     type: 'info',
-    title: `About ${PRODUCT_NAME}`,
+    title: `关于 ${PRODUCT_NAME}`,
     message: PRODUCT_NAME,
     detail: [
       `${PRODUCT_NAME} ${app.getVersion()}`,
       `官方引擎: ${engine?.version ?? '未运行'} (${engine?.source ?? '—'})`,
       `安装包钉死版本: ${PINNED_ENGINE_VERSION}`,
       `本壳已验证: ${verified ? '是' : '否'}`,
+      `更新通道: ${normalizeUpdateChannel(config.updateChannel)}`,
       `Node 运行时: ${engine?.manifest?.nodeVersion ?? '随引擎捆绑'}`,
       '',
+      `工作区: ${defaultWorkspaceCwd(config)}`,
       `Harness 用户数据: ${defaultDshHome()}`,
       `壳数据: ${app.getPath('userData')}`,
+      `已关闭的插件: ${disabled}`,
       '',
       '检查更新、回滚、重启引擎：菜单栏「LocalHarness」。',
       '这些操作不在官方网页界面里。',
@@ -147,7 +192,7 @@ async function checkForUpdates(): Promise<void> {
   if (!running) {
     await showAppMessageBox(liveWindow(), {
       type: 'info',
-      message: 'Start the engine before checking for updates.',
+      message: '请先启动引擎，再检查更新。',
     })
     return
   }
@@ -157,13 +202,16 @@ async function checkForUpdates(): Promise<void> {
   let restorePlugins: { restore(): void } | undefined
   try {
     log.write('update', `Checking npm for versions newer than ${running.engine.version}`)
-    const decision = await inspectOfficialUpdates(running.engine.version)
+    const decision = await inspectOfficialUpdates(
+      running.engine.version,
+      normalizeUpdateChannel(config.updateChannel),
+    )
     if (decision.kind === 'current') {
       log.write('update', `Already on ${decision.current}`)
       await showAppMessageBox(liveWindow(), {
         type: 'info',
-        message: `Already on the newest published official engine (${decision.current}).`,
-        detail: 'LocalHarness does not auto-update. Check again from the menu when you want to.',
+        message: `已是当前通道上最新的官方引擎（${decision.current}）。`,
+        detail: 'LocalHarness 不会自动升级。需要时再从菜单检查。',
       })
       return
     }
@@ -195,6 +243,14 @@ async function checkForUpdates(): Promise<void> {
     restorePlugins =
       disableIds.length > 0 ? applyLivePluginDisables(defaultDshHome(), disableIds) : undefined
     if (installed.disabledPlugins.length > 0) {
+      rememberDisabledPlugins(
+        config,
+        installed.disabledPlugins.map((plugin) => ({
+          ...plugin,
+          engineVersion: decision.target,
+          at: new Date().toISOString(),
+        })),
+      )
       log.write(
         'update',
         `Turned off incompatible plugins: ${installed.disabledPlugins.map((plugin) => plugin.packageName).join(', ')}`,
@@ -209,16 +265,21 @@ async function checkForUpdates(): Promise<void> {
     const started = await bootEngine(`正在重启到官方 ${decision.target}…`, { showError: false })
     if (started) {
       restorePlugins = undefined
+      const removed = pruneUserEngines(join(app.getPath('userData'), 'engines'), [
+        config.activeEngineVersion,
+        config.previousEngineVersion,
+      ])
+      if (removed.length > 0) log.write('update', `Pruned old engines: ${removed.join(', ')}`)
       if (installed.disabledPlugins.length > 0 && !quitting) {
         await showAppMessageBox(liveWindow(), {
           type: 'info',
-          title: `${PRODUCT_NAME} — plugins turned off`,
-          message: `Official ${decision.target} is running.`,
+          title: `${PRODUCT_NAME} — 已关闭插件`,
+          message: `官方 ${decision.target} 正在运行。`,
           detail: [
-            'These plugins could not start with the new engine, so they were turned off. The packages are still installed:',
+            '这些插件无法随新引擎启动，已关闭。安装包仍保留：',
             ...installed.disabledPlugins.map((plugin) => `• ${plugin.packageName}`),
             '',
-            'After you update a plugin, turn it back on in the official plugin settings, or uninstall it there.',
+            '更新插件后，可在官方插件设置里重新打开，或在那里卸载。',
           ].join('\n'),
         })
       }
@@ -232,10 +293,10 @@ async function checkForUpdates(): Promise<void> {
     if (!quitting) {
       await showAppMessageBox(liveWindow(), {
         type: 'error',
-        message: `Official ${decision.target} failed to start`,
+        message: `官方 ${decision.target} 无法启动`,
         detail: rolledBack
-          ? `Rolled back to ${previousActive ?? running?.engine.version ?? `the shipped engine (${PINNED_ENGINE_VERSION})`}.`
-          : `Rollback also failed. Use LocalHarness → Rollback Harness Engine.\nShipped engine is ${PINNED_ENGINE_VERSION}.`,
+          ? `已回滚到 ${previousActive ?? running?.engine.version ?? `安装包钉死版本（${PINNED_ENGINE_VERSION}）`}。`
+          : `回滚也失败了。请用 LocalHarness → 回滚 Harness 引擎。\n钉死版本是 ${PINNED_ENGINE_VERSION}。`,
       })
     }
   } catch (error) {
@@ -245,7 +306,7 @@ async function checkForUpdates(): Promise<void> {
     if (!quitting && !/install cancelled/.test(message)) {
       await showAppMessageBox(liveWindow(), {
         type: 'error',
-        message: 'Could not update the official engine',
+        message: '无法更新官方引擎',
         detail: message,
       })
     }
@@ -273,50 +334,138 @@ async function rollbackEngine(): Promise<void> {
   if (!target) {
     await showAppMessageBox(liveWindow(), {
       type: 'info',
-      message: 'No previous engine is available to roll back to.',
-      detail: `Shipped engine is ${PINNED_ENGINE_VERSION}.`,
+      message: '没有可回滚的上一版引擎。',
+      detail: `安装包钉死版本是 ${PINNED_ENGINE_VERSION}。`,
     })
     return
   }
   const choice = await showAppMessageBox(liveWindow(), {
     type: 'question',
-    buttons: ['Roll Back', 'Cancel'],
+    buttons: ['回滚', '取消'],
     defaultId: 0,
     cancelId: 1,
     message: target.version
-      ? `Roll back to official ${target.version}?`
-      : `Roll back to the shipped engine (${PINNED_ENGINE_VERSION})?`,
+      ? `回滚到官方 ${target.version}？`
+      : `回滚到安装包钉死的引擎（${PINNED_ENGINE_VERSION}）？`,
   })
   if (!isAcceptedDialogButton(choice.response, 0)) return
   config.previousEngineVersion = config.activeEngineVersion
   config.activeEngineVersion = target.version
   persistConfig()
-  await bootEngine('Rolling back the official engine…')
+  await bootEngine('正在回滚官方引擎…')
+}
+
+async function checkShellUpdates(): Promise<void> {
+  try {
+    const decision = await inspectShellUpdates(app.getVersion())
+    if (decision.kind === 'current') {
+      await showAppMessageBox(liveWindow(), {
+        type: 'info',
+        message: `LocalHarness 已是最新（${decision.current}）。`,
+      })
+      return
+    }
+    const choice = await showAppMessageBox(liveWindow(), {
+      type: 'question',
+      buttons: ['打开下载页', '取消'],
+      defaultId: 0,
+      cancelId: 1,
+      message: `发现 LocalHarness ${decision.latest}`,
+      detail: `当前是 ${decision.current}。壳更新需要安装新的安装包，不会自动替换。`,
+    })
+    if (isAcceptedDialogButton(choice.response, 0)) {
+      await shell.openExternal(decision.url)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await showAppMessageBox(liveWindow(), {
+      type: 'error',
+      message: '无法检查 LocalHarness 更新',
+      detail: message,
+    })
+  }
+}
+
+async function chooseWorkspace(): Promise<void> {
+  const choice = await dialog.showOpenDialog(liveWindow() ?? createWindow(), {
+    title: '选择工作区',
+    defaultPath: defaultWorkspaceCwd(config),
+    properties: ['openDirectory', 'createDirectory'],
+  })
+  if (choice.canceled || choice.filePaths.length === 0) return
+  config.workspaceCwd = choice.filePaths[0]
+  persistConfig()
+  refreshMenu()
+  await bootEngine('正在用新的工作区重启引擎…')
+}
+
+function setUpdateChannel(channel: UpdateChannel): void {
+  config.updateChannel = channel
+  persistConfig()
+  refreshMenu()
 }
 
 function openLogs(): void {
   void shell.openPath(log.directory)
 }
 
+const menuHandlers: MenuHandlers = {
+  checkForUpdates: () => void checkForUpdates(),
+  checkShellUpdates: () => void checkShellUpdates(),
+  rollbackEngine: () => void rollbackEngine(),
+  restartEngine: () => {
+    if (updating) {
+      void showAppMessageBox(liveWindow(), { type: 'info', message: busyMessage() })
+      return
+    }
+    void bootEngine('正在重启官方 Harness…')
+  },
+  showAbout,
+  openLogs,
+  chooseWorkspace: () => void chooseWorkspace(),
+  setUpdateChannel,
+  findInPage: () => {
+    const win = liveWindow()
+    if (win) openFindBar(win)
+  },
+  reloadUi: () => {
+    const win = liveWindow()
+    if (win) reloadEngineUi(win, running?.url)
+  },
+}
+
 function createWindow(): Electron.BrowserWindow {
   mainWindow = createMainWindow(config.windowBounds)
+  attachHostWindow(mainWindow, {
+    getEngineUrl: () => running?.url,
+    onShellAction: (action) => {
+      if (action === 'restart') menuHandlers.restartEngine()
+      if (action === 'rollback') void rollbackEngine()
+      if (action === 'logs') openLogs()
+    },
+  })
   mainWindow.on('close', () => {
     persistConfig()
   })
   mainWindow.on('closed', () => {
+    closeFindBar()
     mainWindow = undefined
   })
   return mainWindow
 }
 
 if (gotLock) {
+  app.on('web-contents-created', (_event, contents) => {
+    contents.setBackgroundThrottling(false)
+  })
+
   app.on('second-instance', () => {
     if (!mainWindow) {
       const win = createWindow()
       if (running) {
         void win.loadURL(running.url)
       } else {
-        void bootEngine('Starting official Harness…')
+        void bootEngine('正在启动官方 Harness…')
       }
       return
     }
@@ -325,25 +474,24 @@ if (gotLock) {
     mainWindow.focus()
   })
 
+  ipcMain.on('find-query', (_event, text: unknown, forward: unknown) => {
+    const win = liveWindow()
+    if (!win) return
+    findInParent(win, typeof text === 'string' ? text : '', forward !== false)
+  })
+  ipcMain.on('find-close', () => {
+    closeFindBar()
+  })
+
   app.whenReady().then(async () => {
     log = new EngineLog(join(app.getPath('userData'), 'logs'))
     log.open()
     config = loadConfig(app.getPath('userData'))
+    config.updateChannel = normalizeUpdateChannel(config.updateChannel)
+    if (!config.workspaceCwd) config.workspaceCwd = homedir()
     createWindow()
-    installApplicationMenu(() => mainWindow, {
-      checkForUpdates: () => void checkForUpdates(),
-      rollbackEngine: () => void rollbackEngine(),
-      restartEngine: () => {
-        if (updating) {
-          void showAppMessageBox(liveWindow(), { type: 'info', message: busyMessage() })
-          return
-        }
-        void bootEngine('Restarting official Harness…')
-      },
-      showAbout,
-      openLogs,
-    })
-    await bootEngine('Starting official Harness…')
+    refreshMenu()
+    await bootEngine('正在启动官方 Harness…')
   })
 
   app.on('activate', () => {
@@ -352,7 +500,7 @@ if (gotLock) {
       if (running) {
         void win.loadURL(running.url)
       } else {
-        void bootEngine('Starting official Harness…')
+        void bootEngine('正在启动官方 Harness…')
       }
       return
     }

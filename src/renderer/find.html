@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>查找</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #1b1824;
+        color: #edf4f4;
+      }
+      form {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        box-sizing: border-box;
+      }
+      input {
+        flex: 1;
+        height: 28px;
+        border: 1px solid #445;
+        border-radius: 6px;
+        background: #121018;
+        color: inherit;
+        padding: 0 8px;
+      }
+      button {
+        height: 28px;
+        border: 0;
+        border-radius: 6px;
+        background: #2a3344;
+        color: inherit;
+        padding: 0 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="find">
+      <input id="q" type="search" placeholder="在页面中查找" autofocus />
+      <button type="submit">下一个</button>
+      <button id="prev" type="button">上一个</button>
+      <button id="close" type="button">关闭</button>
+    </form>
+    <script>
+      var q = document.getElementById("q")
+      document.getElementById("find").addEventListener("submit", function (event) {
+        event.preventDefault()
+        window.findBar && window.findBar.query(q.value, true)
+      })
+      document.getElementById("prev").addEventListener("click", function () {
+        window.findBar && window.findBar.query(q.value, false)
+      })
+      document.getElementById("close").addEventListener("click", function () {
+        window.findBar && window.findBar.close()
+      })
+      q.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") window.findBar && window.findBar.close()
+      })
+    </script>
+  </body>
+</html>

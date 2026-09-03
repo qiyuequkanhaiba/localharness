@@ -85,7 +85,21 @@ async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
   try {
     return await fn(home)
   } finally {
-    rmSync(home, { recursive: true, force: true })
+    cleanupSmokeHome(home)
+  }
+}
+
+function isDeferredWindowsCleanup(error: unknown): boolean {
+  const code = typeof error === 'object' && error && 'code' in error ? String((error as NodeJS.ErrnoException).code) : ''
+  return code === 'ENOTEMPTY' || code === 'EBUSY' || code === 'EPERM'
+}
+
+function cleanupSmokeHome(home: string): void {
+  try {
+    rmSync(home, { recursive: true, force: true, maxRetries: 8, retryDelay: 125 })
+  } catch (error) {
+    if (isDeferredWindowsCleanup(error)) return
+    throw error
   }
 }
 

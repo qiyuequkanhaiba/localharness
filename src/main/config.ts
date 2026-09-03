@@ -36,6 +36,15 @@ export function saveConfig(userData: string, config: ShellConfig): void {
   writeFileSync(configPath(userData), `${JSON.stringify(config, null, 2)}\n`)
 }
 
+export function restoreActiveEngine(
+  config: ShellConfig,
+  previousActive: string | undefined,
+  failedVersion: string,
+): void {
+  config.activeEngineVersion = previousActive
+  config.previousEngineVersion = failedVersion
+}
+
 export function defaultWorkspaceCwd(): string {
   return homedir()
 }

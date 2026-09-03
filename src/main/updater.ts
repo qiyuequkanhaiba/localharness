@@ -21,6 +21,7 @@ export interface UpdateContext {
   projectRoot: string
   parent?: BrowserWindow
   onAccepted?: () => Promise<void>
+  userDshHome?: string
 }
 
 export function showAppMessageBox(
@@ -36,25 +37,25 @@ export function showAppMessageBox(
 
 export type UpdateDecision =
   | { kind: 'current'; current: string; latest?: string }
-  | { kind: 'available'; current: string; target: string; newer: string[]; verified: boolean }
+  | { kind: 'available'; current: string; target: string; newer: string[]; verified: boolean; latestTag?: string }
 
 export async function inspectOfficialUpdates(currentVersion: string): Promise<UpdateDecision> {
   const info = await fetchOfficialVersions()
-  const latest =
-    info.latest && valid(info.latest) && info.versions.includes(info.latest)
-      ? info.latest
-      : newestPublished(info.versions)
-  const newer = latest ? versionsNewerThan(currentVersion, [latest]) : []
+  const latestTag =
+    info.latest && valid(info.latest) && info.versions.includes(info.latest) ? info.latest : undefined
+  const newer = versionsNewerThan(currentVersion, info.versions)
+  const newest = newestPublished(info.versions) ?? latestTag
   if (newer.length === 0) {
-    return { kind: 'current', current: currentVersion, latest }
+    return { kind: 'current', current: currentVersion, latest: newest }
   }
-  const target = newer[0]
+  const target = newestPublished(newer) ?? newer[0]
   return {
     kind: 'available',
     current: currentVersion,
     target,
     newer,
     verified: (VERIFIED_ENGINE_VERSIONS as readonly string[]).includes(target),
+    latestTag,
   }
 }
 
@@ -77,11 +78,17 @@ export async function confirmAndInstallUpdate(
     message: `Install official ${decision.target}?`,
     detail: [
       `Current engine: ${decision.current}`,
-      `Latest npm tag @deepseek-ai/dsh: ${decision.target}`,
+      `Newest published @deepseek-ai/dsh: ${decision.target}`,
+      decision.latestTag && decision.latestTag !== decision.target
+        ? `npm latest tag is still ${decision.latestTag}`
+        : '',
       warning,
+      'If the new engine fails to start with your ~/.dsh web profile, LocalHarness will roll back automatically.',
       '',
       'The installer is downloaded from the npm registry. LocalHarness does not modify official UI or host code.',
-    ].join('\n'),
+    ]
+      .filter((line) => line.length > 0)
+      .join('\n'),
   })
   log.info(`Update dialog response=${choice.response}`)
   if (!isAcceptedDialogButton(choice.response, 0)) return undefined
@@ -104,7 +111,7 @@ export async function confirmAndInstallUpdate(
     })
     if (signal?.aborted) throw new Error('install cancelled')
     log.info(`正在冒烟测试官方 ${decision.target}…`)
-    await smokeTestEngine(tmp)
+    await smokeTestEngine(tmp, ctx.userDshHome)
     rmSync(dest, { recursive: true, force: true })
     mkdirSync(ctx.userEnginesDir, { recursive: true })
     try {

@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { APP_ID, PINNED_ENGINE_VERSION, PRODUCT_NAME, VERIFIED_ENGINE_VERSIONS } from '../shared/constants'
 import { locateEngine, describeMissingEngine } from '../engine/locate'
 import { defaultDshHome } from '../engine/platform'
-import { defaultWorkspaceCwd, loadConfig, saveConfig, type ShellConfig } from './config'
+import { defaultWorkspaceCwd, loadConfig, restoreActiveEngine, saveConfig, type ShellConfig } from './config'
 import { EngineLog } from './logs'
 import { installApplicationMenu } from './menu'
 import { startEngine, stopEngine, type RunningEngine } from './session'
@@ -70,8 +70,8 @@ function persistConfig(): void {
   saveConfig(app.getPath('userData'), config)
 }
 
-async function bootEngine(status: string): Promise<void> {
-  if (starting) return
+async function bootEngine(status: string, options?: { showError?: boolean }): Promise<boolean> {
+  if (starting) return Boolean(running)
   starting = true
   try {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -100,12 +100,14 @@ async function bootEngine(status: string): Promise<void> {
     if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.loadURL(running.url)
     }
+    return true
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     log.write('error', message)
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    if (options?.showError !== false && mainWindow && !mainWindow.isDestroyed()) {
       await showError(mainWindow, message)
     }
+    return false
   } finally {
     starting = false
   }
@@ -152,13 +154,13 @@ async function checkForUpdates(): Promise<void> {
   updateAbort = new AbortController()
   const engineUrl = running.url
   try {
-    log.write('update', `Checking npm latest channel for versions newer than ${running.engine.version}`)
+    log.write('update', `Checking npm for versions newer than ${running.engine.version}`)
     const decision = await inspectOfficialUpdates(running.engine.version)
     if (decision.kind === 'current') {
       log.write('update', `Already on ${decision.current}`)
       await showAppMessageBox(liveWindow(), {
         type: 'info',
-        message: `Already on the newest official engine from the npm latest channel (${decision.current}).`,
+        message: `Already on the newest published official engine (${decision.current}).`,
         detail: 'LocalHarness does not auto-update. Check again from the menu when you want to.',
       })
       return
@@ -177,6 +179,7 @@ async function checkForUpdates(): Promise<void> {
           const win = liveWindow()
           if (win) await showSplash(win, `正在安装官方引擎 ${decision.target}…`)
         },
+        userDshHome: defaultDshHome(),
       },
       decision,
       { info: updateLog, output: npmProgress },
@@ -186,12 +189,27 @@ async function checkForUpdates(): Promise<void> {
       log.write('update', 'Install cancelled')
       return
     }
-    config.previousEngineVersion = config.activeEngineVersion ?? running.engine.version
+    const previousActive = config.activeEngineVersion
+    config.previousEngineVersion = previousActive ?? running.engine.version
     config.activeEngineVersion = decision.target
     persistConfig()
     log.write('update', `Switching active engine to ${decision.target}`)
     updating = false
-    await bootEngine(`正在重启到官方 ${decision.target}…`)
+    const started = await bootEngine(`正在重启到官方 ${decision.target}…`, { showError: false })
+    if (started) return
+    log.write('update', `Official ${decision.target} failed to start; rolling back`)
+    restoreActiveEngine(config, previousActive, decision.target)
+    persistConfig()
+    const rolledBack = await bootEngine('升级后无法启动，正在回滚…')
+    if (!quitting) {
+      await showAppMessageBox(liveWindow(), {
+        type: 'error',
+        message: `Official ${decision.target} failed to start`,
+        detail: rolledBack
+          ? `Rolled back to ${previousActive ?? running?.engine.version ?? `the shipped engine (${PINNED_ENGINE_VERSION})`}.`
+          : `Rollback also failed. Use LocalHarness → Rollback Harness Engine.\nShipped engine is ${PINNED_ENGINE_VERSION}.`,
+      })
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     log.write('update', message)

@@ -23,4 +23,16 @@ describe('parseReadyUrl', () => {
       'http://127.0.0.1:49152',
     )
   })
+
+  it('keeps the official launch-token query', () => {
+    expect(parseReadyUrl('dsh web: http://127.0.0.1:3080/?token=abc_def-123\n')).toBe(
+      'http://127.0.0.1:3080/?token=abc_def-123',
+    )
+  })
+
+  it('keeps the token when a LAN suffix is present', () => {
+    expect(
+      parseReadyUrl('dsh web: http://127.0.0.1:54321/?token=abc (LAN: http://192.168.1.8:54321)\n'),
+    ).toBe('http://127.0.0.1:54321/?token=abc')
+  })
 })

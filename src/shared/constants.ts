@@ -20,8 +20,9 @@ export const NODE_DIST_BASE = 'https://nodejs.org/dist'
 export const VERIFIED_ENGINE_VERSIONS = ['0.1.0-rc.6'] as const
 
 export const OFFICIAL_REPO_URL = 'https://github.com/deepseek-ai/deepseek-harness'
+/** Official `dsh web:` line. Newer engines append `/?token=…` for the browser session. */
 export const READY_URL_PATTERN =
-  /dsh web:\s*(https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d+)/i
+  /dsh web:\s*(https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d+(?:\/[^\s]*)?)/i
 
 export const ENGINE_START_TIMEOUT_MS = 90_000
 export const ENGINE_STOP_TIMEOUT_MS = 6_000
